@@ -12,7 +12,7 @@ function connectWebSocket() {
         console.log("BACKGROUND: WebSocket bağlantısı zaten aktif.");
         return;
     }
-    const wsUrl = "wss://fastcheckerwebsocket.glitch.me";
+    const wsUrl = "wss://YOUR_RENDER_WEBSOCKET_URL";
     ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log("BACKGROUND: WebSocket bağlantısı başarıyla kuruldu.");
     ws.onmessage = async (event) => {

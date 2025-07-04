@@ -1,0 +1,17 @@
+{
+  "name": "fastchecker-websocket-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for FastChecker extension",
+  "main": "service.js",
+  "scripts": {
+    "start": "node service.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fastify/cors": "^8.0.0",
+    "fastify": "^4.0.0",
+    "ws": "^8.0.0"
+  }
+}
