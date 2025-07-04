@@ -19,7 +19,6 @@ BSR_TABLES = {
 print("BSR tables loaded.")
 
 # --- Load Credentials from Environment Variables ---
-# These are expected to be set in the Railway environment
 try:
     credentials = {
         "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
@@ -29,16 +28,12 @@ try:
         "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
     }
     SELLER_ID = os.environ['AMAZON_SELLER_ID']
-    # Check if all essential credentials are present
-    if not all(credentials.values()) or not SELLER_ID:
-        raise KeyError("One or more environment variables are missing.")
 except KeyError as e:
     print(f"FATAL ERROR: Environment variable not found - {e}")
-    # Set a global error state
     credentials = None
     SELLER_ID = None
 
-# --- Main Function to Get Product Details ---
+# --- Main Function to Get Product Details (Based on your original logic) ---
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
     if not credentials or not SELLER_ID:
         return {"error": "Server is not configured. Missing credentials or Seller ID."}
@@ -49,7 +44,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         return {"error": f"Invalid marketplace: '{marketplace_str}'."}
 
     try:
-        # Initialize APIs
+        # Initialize APIs with the credentials loaded from environment variables
         catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
         restrictions_api = ListingsRestrictions(credentials=credentials, marketplace=marketplace)
         products_api = Products(credentials=credentials, marketplace=marketplace)
@@ -57,26 +52,24 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
         result_data = {}
 
-        # 1. Catalog Info
-        catalog_response = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes', 'images'])
-        payload = catalog_response.payload
-        
-        summary = payload.get('summaries', [{}])[0]
+        # 1. Catalog Info (Attributes)
+        catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes'])
+        summary = catalog_response_attributes.payload.get('summaries', [{}])[0]
         result_data['asin'] = asin
         result_data['title'] = summary.get('itemName', 'N/A')
         result_data['brand'] = summary.get('brandName', 'N/A')
-        
-        # EAN
-        identifiers = payload.get('identifiers', [{}])[0].get('identifiers', [])
-        result_data['ean'] = next((i['identifier'] for i in identifiers if i.get('identifierType') == 'EAN'), 'N/A')
+        result_data['ean'] = next((i['identifier'] for i in catalog_response_attributes.payload.get('identifiers', [{}])[0].get('identifiers', []) if i['identifierType'] == 'EAN'), 'N/A')
 
-        # Image
-        images = payload.get('images', [{}])[0].get('images', [])
-        result_data['imageUrl'] = images[0].get('link') if images else None
+        # 2. Image Info (Separate call as in original code)
+        try:
+            catalog_response_images = catalog_api.get_catalog_item(asin, includedData=['images'])
+            result_data['imageUrl'] = catalog_response_images.payload.get('images', [{}])[0].get('images', [{}])[0].get('link')
+        except (SellingApiException, IndexError):
+            result_data['imageUrl'] = None
 
-        # Dimensions & Weight
-        attributes = payload.get('attributes', {})
-        package_dims = attributes.get('item_package_dimensions', [{}])[0]
+        # 3. Dimensions and Weight
+        attributes_data = catalog_response_attributes.payload.get('attributes', {})
+        package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
         if package_dims and 'value' in package_dims.get('length', {}):
             length = package_dims['length']['value'] * 2.54
             width = package_dims['width']['value'] * 2.54
@@ -85,7 +78,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         else:
             result_data['dimensions'] = "N/A"
 
-        package_weight = attributes.get('item_package_weight', [{}])[0]
+        package_weight = attributes_data.get('item_package_weight', [{}])[0]
         if package_weight and 'value' in package_weight:
             weight_value = package_weight['value']
             weight_unit = package_weight.get('unit', '')
@@ -93,40 +86,44 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 weight_kg = weight_value * 0.453592
                 result_data['packageWeight'] = f"{(weight_kg * 1000):.0f} gr"
             else:
-                result_data['packageWeight'] = f"{float(weight_value) * 1000:.0f} gr"
+                try:
+                    result_data['packageWeight'] = f"{float(weight_value) * 1000:.0f} gr"
+                except (ValueError, TypeError):
+                    result_data['packageWeight'] = "N/A"
         else:
             result_data['packageWeight'] = "N/A"
 
-        # 2. Restrictions
+        # 4. Restrictions
         restrictions_response = restrictions_api.get_listings_restrictions(asin=asin, sellerId=SELLER_ID, conditionType='new_new')
         restrictions = restrictions_response.payload.get('restrictions', [])
         result_data['isSellable'] = not bool(restrictions)
         result_data['restrictionReasons'] = [reason.get('message') for r in restrictions for reason in r.get('reasons', [])]
 
-        # 3. Offers
+        # 5. Offers
         offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
         offers = offers_response.payload.get('Offers', [])
-        active_offers = [o for o in offers if o.get('Quantity', 1) > 0 and o.get('IsFeatured', True)]
-        result_data['offers'] = active_offers
-        
-        buybox_offer = next((o for o in active_offers if o.get('IsBuyBoxWinner')), None)
+        filtered_offers = [o for o in offers if o.get('Quantity', 1) > 0 and o.get('IsFeatured', True)]
+        result_data['offers'] = filtered_offers
+        buybox_offer = next((o for o in filtered_offers if o.get('IsBuyBoxWinner')), None)
         buybox_price = float(buybox_offer['ListingPrice']['Amount']) if buybox_offer else None
         currency_code = buybox_offer['ListingPrice']['CurrencyCode'] if buybox_offer else None
         result_data['buyboxPrice'] = buybox_price
         result_data['currencyCode'] = currency_code
 
-        # 4. Fees
+        # 6. Fees
         if buybox_price:
             fees_response = fees_api.get_product_fees_estimate([{'id_type': 'ASIN', 'id_value': asin, 'price': buybox_price, 'currency': currency_code, 'is_fba': True, 'marketplace_id': marketplace.marketplace_id}])
             fees_result = fees_response.payload[0]
             if fees_result.get('Status') == 'Success':
-                estimate = fees_result['FeesEstimate']
-                result_data['totalFees'] = estimate.get('TotalFeesEstimate', {}).get('Amount')
-                result_data['referralFee'] = next((f['FeeAmount']['Amount'] for f in estimate.get('FeeDetailList', []) if f['FeeType'] == "ReferralFee"), 0.0)
-                result_data['fbaFee'] = next((f['FeeAmount']['Amount'] for f in estimate.get('FeeDetailList', []) if f['FeeType'] == "FBAFees"), 0.0)
-                result_data['netProfit'] = buybox_price - result_data.get('totalFees', 0.0)
+                fees_estimate = fees_result.get('FeesEstimate', {})
+                total_fees = fees_estimate.get('TotalFeesEstimate', {}).get('Amount', 0.0)
+                fee_details = fees_estimate.get('FeeDetailList', [])
+                result_data['totalFees'] = total_fees
+                result_data['referralFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "ReferralFee"), 0.0)
+                result_data['fbaFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "FBAFees"), 0.0)
+                result_data['netProfit'] = buybox_price - total_fees
             else:
-                 result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
+                result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
         else:
             result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
 
@@ -163,5 +160,4 @@ def api_get_product_details(asin):
 # --- Server Start ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5003))
-    # Use 0.0.0.0 to be accessible from outside the container
     app.run(host='0.0.0.0', port=port, debug=False)
