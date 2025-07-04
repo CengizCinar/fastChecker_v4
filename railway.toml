@@ -1,5 +1,6 @@
 [build]
 builder = "NIXPACKS"
+baseDirectory = "backend_new"
 
 [deploy]
 startCommand = "gunicorn --bind 0.0.0.0:$PORT backend_new.app:app"
