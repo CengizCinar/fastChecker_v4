@@ -61,10 +61,8 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         result_data['ean'] = next((i['identifier'] for i in catalog_response_attributes.payload.get('identifiers', [{}])[0].get('identifiers', []) if i['identifierType'] == 'EAN'), 'N/A')
 
         # --- DEBUG LOGGING START ---
-        print("--- DEBUG: Full Identifiers Payload ---")
-        print(json.dumps(catalog_response_attributes.payload.get('identifiers', {}), indent=2))
-        print("--- DEBUG: Full Attributes Payload ---")
-        print(json.dumps(catalog_response_attributes.payload.get('attributes', {}), indent=2))
+        print(f"--- DEBUG: Identifiers Payload: {catalog_response_attributes.payload.get('identifiers', {})}")
+        print(f"--- DEBUG: Attributes Payload: {catalog_response_attributes.payload.get('attributes', {})}")
         print("--- DEBUG LOGGING END ---")
 
         # 2. Image Info (Separate call as in original code)
