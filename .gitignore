@@ -50,7 +50,7 @@ Thumbs.db
 logs/
 
 # Config files (sensitive)
-config.json
+backend_new/config.json
 .env
 .env.local
 .env.production
