@@ -55,10 +55,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         # 1. Catalog Info (Attributes)
         catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes'])
         
-        # --- DEBUG: Full Catalog Response Payload --- 
-        print(f"--- DEBUG: Full Catalog Response Payload: {catalog_response_attributes.payload}")
-        # --- END DEBUG ---
-
         summary = catalog_response_attributes.payload.get('summaries', [{}])[0]
         result_data['asin'] = asin
         result_data['title'] = summary.get('itemName', 'N/A')
