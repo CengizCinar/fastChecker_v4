@@ -317,7 +317,7 @@ function updateUI(container, data, error = null) {
     const container = createUIContainer();
     if (!container) return;
     // Backend'den veri çek
-    fetch(`http://127.0.0.1:5003/get_product_details/${asin}?marketplace=US`)
+    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=US`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {

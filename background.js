@@ -65,7 +65,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'fetchProductDetails') {
         const { asin, marketplace } = request; // marketplace'i request'ten al
         // API URL'ine marketplace'i ekle
-        fetch(`http://127.0.0.1:5003/get_product_details/${asin}?marketplace=${marketplace}`)
+        fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${marketplace}`)
             .then(response => {
                 if (!response.ok) {
                     return response.json().then(errorData => {
