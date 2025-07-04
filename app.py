@@ -53,7 +53,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         result_data = {}
 
         # 1. Catalog Info (Attributes)
-        catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes'])
+        catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes', 'dimensions', 'images', 'productTypes', 'relationships', 'salesRanks', 'variations'])
         
         # --- DEBUG: Full Catalog Response Payload --- 
         print(f"--- DEBUG: Full Catalog Response Payload: {catalog_response_attributes.payload}")
