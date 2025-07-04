@@ -12,7 +12,7 @@ function connectWebSocket() {
         console.log("BACKGROUND: WebSocket bağlantısı zaten aktif.");
         return;
     }
-    const wsUrl = "wss://YOUR_RENDER_WEBSOCKET_URL";
+    const wsUrl = "wss://fastchecker-websocket.onrender.com";
     ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log("BACKGROUND: WebSocket bağlantısı başarıyla kuruldu.");
     ws.onmessage = async (event) => {

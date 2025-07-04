@@ -15,7 +15,7 @@
       "https://sellingpartnerapi-fe.amazon.com/*",
       "https://*.amazon.com/*",
       "https://fastcheckerwebsocket.glitch.me/*",
-      "wss://YOUR_RENDER_WEBSOCKET_URL/*"
+      "wss://fastchecker-websocket.onrender.com/*"
    ],
    "background": {
       "service_worker": "background.js"
