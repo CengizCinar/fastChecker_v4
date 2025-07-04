@@ -25,9 +25,8 @@ try:
         "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
         "lwa_app_id": os.environ['AMAZON_LWA_APP_ID'],
         "lwa_client_secret": os.environ['AMAZON_LWA_CLIENT_SECRET'],
-        # The role_arn is not strictly required for all calls but good practice
-        # You might need to create an IAM role and provide its ARN here
-        # "role_arn": os.environ.get('AMAZON_ROLE_ARN', 'arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/YourSPAPIRole')
+        "aws_access_key": os.environ['AWS_ACCESS_KEY_ID'],
+        "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
     }
     SELLER_ID = os.environ['AMAZON_SELLER_ID']
     # Check if all essential credentials are present
