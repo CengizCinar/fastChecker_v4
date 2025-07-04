@@ -2,6 +2,6 @@ Flask==2.3.3
 Flask-CORS==4.0.0
 requests==2.31.0
 beautifulsoup4==4.12.2
-python-amazon-sp-api==0.17.0
+python-amazon-sp-api==1.9.39
 gunicorn==21.2.0
 pathlib2==2.3.7
