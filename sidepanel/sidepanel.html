@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en"> <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastChecker</title>
+    <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <div class="header-top">
+                <h1 class="title">FastChecker</h1>
+                <div class="header-icons">
+                    <button class="icon-btn" id="langBtn">🇹🇷</button>
+                    <button class="icon-btn" id="settingsBtn">⚙️</button>
+                    <button class="icon-btn" id="themeBtn">🌙</button>
+                    <button class="icon-btn" id="expandBtn">↗️</button>
+                </div>
+            </div>
+            <div class="status-bar">
+                <span class="status-text">FREE</span>
+                <span class="usage-text">100 / 100</span>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="section">
+                <div class="section-header" id="apiSettingsHeader">
+                    <span data-i18n-key="apiSettingsHeader">SP-API Settings</span>
+                    <span class="arrow">▼</span>
+                </div>
+                <div class="section-content" id="apiSettingsContent">
+                    <div class="form-group">
+                        <label data-i18n-key="refreshTokenLabel">Refresh Token: *</label>
+                        <input type="password" id="refreshToken" data-i18n-placeholder="enterRefreshToken">
+                        <button class="toggle-visibility" onclick="togglePasswordVisibility('refreshToken')">👁️</button>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n-key="clientIdLabel">Client ID: *</label>
+                        <input type="password" id="clientId" data-i18n-placeholder="enterLwaAppId">
+                        <button class="toggle-visibility" onclick="togglePasswordVisibility('clientId')">👁️</button>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n-key="clientSecretLabel">Client Secret: *</label>
+                        <input type="password" id="clientSecret" data-i18n-placeholder="enterLwaClientSecret">
+                        <button class="toggle-visibility" onclick="togglePasswordVisibility('clientSecret')">👁️</button>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n-key="sellerIdLabel">Seller ID: *</label>
+                        <input type="text" id="sellerId" data-i18n-placeholder="enterSellerId">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n-key="marketplaceLabel">Marketplace:</label>
+                        <select id="marketplace">
+                            <option value="US">Amazon.com (US)</option>
+                            <option value="CA">Amazon.ca (CA)</option>
+                            <option value="MX">Amazon.com.mx (MX)</option>
+                            <option value="BR">Amazon.com.br (BR)</option>
+                            <option value="DE">Amazon.de (DE)</option>
+                            <option value="ES">Amazon.es (ES)</option>
+                            <option value="FR">Amazon.fr (FR)</option>
+                            <option value="IT">Amazon.it (IT)</option>
+                            <option value="NL">Amazon.nl (NL)</option>
+                            <option value="UK">Amazon.co.uk (UK)</option>
+                            <option value="SE">Amazon.se (SE)</option>
+                            <option value="PL">Amazon.pl (PL)</option>
+                            <option value="EG">Amazon.eg (EG)</option>
+                            <option value="TR">Amazon.com.tr (TR)</option>
+                            <option value="SA">Amazon.sa (SA)</option>
+                            <option value="AE">Amazon.ae (AE)</option>
+                            <option value="IN">Amazon.in (IN)</option>
+                            <option value="JP">Amazon.co.jp (JP)</option>
+                            <option value="AU">Amazon.com.au (AU)</option>
+                            <option value="SG">Amazon.sg (SG)</option>
+                        </select>
+                    </div>
+                    <button class="save-btn" id="saveApiSettings" data-i18n-key="saveSettingsBtn">Save Settings</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header" id="asinCheckHeader">
+                    <span data-i18n-key="asinCheckHeader">ASIN Control</span>
+                    <span class="arrow">▼</span>
+                </div>
+                <div class="section-content" id="asinCheckContent">
+                    <div class="form-group">
+                        <label data-i18n-key="asinsLabel">ASINs (comma separated):</label>
+                        <textarea id="asinInput" data-i18n-placeholder="asinsPlaceholder" rows="3"></textarea>
+                    </div>
+                    <button class="check-btn" id="checkAsins" data-i18n-key="checkAsinsBtn">Check</button>
+                    <button class="stop-btn" id="stopCheckBtn" style="display: none;" data-i18n-key="stopCheckBtn">Stop</button>
+                    
+                    <button class="check-btn" id="downloadCsvBtn" style="margin-top: 10px; display: none;" data-i18n-key="downloadCsvBtn">Download Results as CSV</button>
+                    <div class="results" id="results"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

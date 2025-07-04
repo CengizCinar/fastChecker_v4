@@ -1,0 +1,412 @@
+/* product-ui.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --fc-bg: #f8f7ff;
+    --fc-card-bg: #ffffff;
+    --fc-text-primary: #3d316b;
+    --fc-text-secondary: #6e6191;
+    --fc-border: #e9e4f8;
+    --fc-purple: #8b5cf6;
+    --fc-pink: #d946ef;
+}
+
+/* ANA KONUMLANDIRMA ÇÖZÜMÜ (KOMPAKT & DENGELİ) */
+#fastchecker-product-ui {
+    width: 290.75px;
+    /* Genişliği 290px olarak ayarla */
+
+    /* Yeni genişliğe göre negatif margin'i yeniden hesapla: (290px - 244px) / 2 = -23px */
+    margin-left: -23.375px;
+    margin-right: -23.375px;
+
+    margin-top: 10px;
+    margin-bottom: 20px;
+
+    /* Dış çerçeve ile kartlar arasına çok küçük bir boşluk ekle */
+    padding: 4px;
+
+    font-family: 'Inter', Amazon Ember;
+    background-color: var(--fc-bg);
+    border-radius: 16px;
+    box-shadow: 0 10px 45px rgba(93, 70, 150, 0.2);
+    border: 1px solid var(--fc-border);
+}
+
+/* Kartların dış çerçeveye daha yakın olmasını sağla */
+.fc-card {
+    background: var(--fc-card-bg);
+    border-radius: 12px;
+    /* Kartların kendi köşeleri yuvarlak kalsın */
+    margin: 0;
+    /* Kartlar arası dış boşluğu kaldır, artık padding ile yönetiliyor */
+    padding: 10px;
+    /* Kart içi boşluğu biraz azalt */
+    box-shadow: 0 2px 15px rgba(93, 70, 150, 0.07);
+}
+
+/* Kartlar arasına dikey boşluk ekle */
+.fc-card+.fc-card {
+    margin-top: 4px;
+}
+
+.fc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: #ffffff;
+    color: #4c3b8a;
+    font-weight: 600;
+    font-size: 16px;
+    border-bottom: 1px solid #ede9f7;
+}
+
+.fc-close {
+    cursor: pointer;
+    font-size: 24px;
+    color: #b8b0d1;
+    transition: all 0.2s ease;
+}
+
+.fc-close:hover {
+    color: #6d44b8;
+    transform: rotate(90deg);
+}
+
+.fc-main-info {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+}
+
+.fc-main-info-img {
+    width: 70px;
+    height: 70px;
+    object-fit: contain;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.fc-main-info-details .title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--fc-text-primary);
+    line-height: 1.3;
+}
+
+.fc-main-info-details .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--fc-text-secondary);
+}
+
+.fc-main-info-details .grid b {
+    color: var(--fc-text-primary);
+}
+
+.fc-status {
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    margin-top: 8px;
+    text-align: center;
+    display: inline-block;
+}
+
+.fc-sellable {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.fc-not-sellable {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+/* New styles for the consolidated finance/calculator section */
+.fc-finance-calculator {
+    padding: 10px;
+}
+
+.fc-finance-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.fc-finance-box .label {
+    font-size: 10px;
+    color: var(--fc-text-secondary);
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.fc-finance-box .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--fc-text-primary);
+}
+
+.fc-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.fc-input-row .input-group {
+    flex: 1;
+}
+
+.fc-input-row label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: var(--fc-text-primary);
+    font-size: 12px;
+}
+
+.fc-input-row input {
+    width: 100%;
+    padding: 8px;
+    border: 2px solid var(--fc-border);
+    border-radius: 8px;
+    font-size: 13px;
+    background: #faf9ff;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    appearance: textfield;
+    -webkit-appearance: none;
+    -moz-appearance: textfield;
+}
+
+.fc-input-row input::-webkit-outer-spin-button,
+.fc-input-row input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.fc-input-row input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.fc-input-row input:focus {
+    background: #fff;
+    border-color: var(--fc-purple);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+}
+
+.fc-result-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+    text-align: center;
+}
+
+.fc-result-row .result-item {
+    background-color: var(--fc-bg);
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.fc-result-row .result-item span:first-child {
+    font-size: 10px;
+    color: var(--fc-text-secondary);
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: block;
+}
+
+.fc-result-row .calculated-value {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--fc-text-primary);
+}
+
+.fc-result-row .positive {
+    color: #22c55e; /* Green */
+}
+
+.fc-result-row .negative {
+    color: #ef4444; /* Red */
+}
+
+.fc-fee-details {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--fc-text-secondary);
+}
+
+.fc-fee-details span {
+    margin: 0 5px;
+}
+
+#fc-final-profit {
+    margin-top: 10px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--fc-text-primary);
+}
+
+.fc-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fc-text-primary);
+    margin-bottom: 12px;
+}
+
+.fc-card-header .icon {
+    color: var(--fc-purple);
+}
+
+.fc-seller-list {
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 12px;
+}
+
+.fc-seller-row {
+    display: grid;
+    grid-template-columns: 40px auto 1fr auto;
+    gap: 8px;
+    padding: 7px 5px;
+    border-bottom: 1px solid #f4f2fa;
+    align-items: center;
+}
+
+.fc-seller-row:last-child {
+    border-bottom: none;
+}
+
+.fc-seller-ffm {
+    font-weight: 600;
+    color: var(--fc-purple);
+}
+
+.fc-seller-id {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.fc-seller-id:hover {
+    text-decoration: underline;
+}
+
+.fc-seller-price {
+    color: var(--fc-text-primary);
+}
+
+.fc-seller-buybox b {
+    color: var(--fc-pink);
+    font-weight: 600;
+}
+
+.fc-loading,
+.fc-error {
+    padding: 40px;
+    text-align: center;
+    color: var(--fc-text-secondary);
+    font-size: 14px;
+}
+
+.fc-error {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.fc-main-info-3col {
+    display: grid;
+    grid-template-columns: 60px 1.2fr 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.fc-main-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+}
+.fc-main-img {
+    align-items: center;
+    justify-content: center;
+}
+.fc-main-brand {
+    align-items: flex-end;
+    justify-content: center;
+    text-align: right;
+}
+.fc-main-brand-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--fc-text-primary);
+}
+.fc-main-asin, .fc-main-ean {
+    font-size: 13px;
+    color: var(--fc-text-secondary);
+    margin-bottom: 2px;
+}
+.fc-main-info-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--fc-text-secondary);
+    margin-bottom: 2px;
+}
+.fc-main-dim, .fc-main-weight {
+    font-size: 13px;
+    color: var(--fc-text-secondary);
+    text-align: center;
+}
+.fc-main-restriction {
+    text-align: center;
+    margin-top: 4px;
+}
+.fc-main-restriction span {
+    display: inline-block;
+    margin: 0 auto;
+}
+.fc-seller-price {
+    font-weight: inherit;
+}
+.fc-main-info-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    margin-top: 10px;
+    margin-bottom: 2px;
+}
+.fc-main-brand-label {
+    font-size: 13px;
+    color: var(--fc-text-secondary);
+    margin-bottom: 2px;
+}
+.fc-main-brand-name {
+    font-size: 14px;
+    color: var(--fc-text-primary);
+    font-weight: 400;
+    margin-bottom: 2px;
+}
