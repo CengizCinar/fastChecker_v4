@@ -7,7 +7,13 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
 from sp_api.base import Marketplaces, SellingApiException
-from bsr_scraper import scrape_bsr_table_by_country
+
+# Fix the import - use relative import since bsr_scraper.py is in the same directory
+try:
+    from .bsr_scraper import scrape_bsr_table_by_country
+except ImportError:
+    # Fallback for direct execution
+    from bsr_scraper import scrape_bsr_table_by_country
 
 # --- Logging Configuration ---
 logging.basicConfig(
