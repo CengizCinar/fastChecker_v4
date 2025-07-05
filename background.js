@@ -12,7 +12,7 @@ function connectWebSocket() {
         console.log("BACKGROUND: WebSocket bağlantısı aktif.");
         return;
     }
-    const wsUrl = "wss://fastchecker-websocket-urh7.onrender.com";
+    const wsUrl = "wss://fastcheckerwebsocket-production.up.railway.app";
     ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log("BACKGROUND: WebSocket bağlantısı başarıyla kuruldu.");
     ws.onmessage = async (event) => {
@@ -93,7 +93,7 @@ async function handleAsinCheck(data, sendResponse) {
     try {
         const { asins, credentials, sellerId, marketplace } = data;
         const spApiHelper = new SPAPIHelper();
-        const postaKutusuAdresi = "https://fastchecker-websocket-urh7.onrender.com/mektup-at";
+        const postaKutusuAdresi = "https://fastcheckerwebsocket-production.up.railway.app/mektup-at";
 
         for (let i = 0; i < asins.length; i++) {
             if (isCheckStopped) {
