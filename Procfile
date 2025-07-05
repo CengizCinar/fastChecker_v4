@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:$PORT --chdir backend_new app:app
+web: gunicorn --bind 0.0.0.0:$PORT backend_new.app:app
