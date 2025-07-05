@@ -9,10 +9,10 @@ let isCheckStopped = false;
 // --- SENİN ORİJİNAL WEBSOCKET KODUN (DOKUNULMADI) ---
 function connectWebSocket() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        console.log("BACKGROUND: WebSocket bağlantısı zaten aktif.");
+        console.log("BACKGROUND: WebSocket bağlantısı aktif.");
         return;
     }
-    const wsUrl = "wss://fastcheckerwebsocket.glitch.me";
+    const wsUrl = "wss://fastchecker-websocket-urh7.onrender.com";
     ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log("BACKGROUND: WebSocket bağlantısı başarıyla kuruldu.");
     ws.onmessage = async (event) => {
@@ -88,13 +88,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-
-// --- SENİN ORİJİNAL handleAsinCheck FONKSİYONUN (DOKUNULMADI) ---
+// --- render websocket ---
 async function handleAsinCheck(data, sendResponse) {
     try {
         const { asins, credentials, sellerId, marketplace } = data;
         const spApiHelper = new SPAPIHelper();
-        const postaKutusuAdresi = "https://fastcheckerwebsocket.glitch.me/mektup-at";
+        const postaKutusuAdresi = "https://fastchecker-websocket-urh7.onrender.com/mektup-at";
 
         for (let i = 0; i < asins.length; i++) {
             if (isCheckStopped) {
@@ -127,3 +126,5 @@ async function handleAsinCheck(data, sendResponse) {
         sendResponse({ success: false, error: error.message });
     }
 }
+
+
