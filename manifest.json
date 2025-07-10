@@ -14,7 +14,8 @@
       "https://sellingpartnerapi-eu.amazon.com/*",
       "https://sellingpartnerapi-fe.amazon.com/*",
       "https://*.amazon.com/*",
-      "https://fastcheckerwebsocket-production.up.railway.app/*"
+      "https://fastcheckerwebsocket-production.up.railway.app/*",
+      "https://eu-price-automation-production.up.railway.app/*"
    ],
    "background": {
       "service_worker": "background.js"

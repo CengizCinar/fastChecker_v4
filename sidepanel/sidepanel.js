@@ -297,14 +297,81 @@ class FastChecker {
         if (loadingDiv) loadingDiv.remove();
     }
     
-    toggleSection(header) { const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (content.style.display === 'none') { content.style.display = 'block'; arrow.classList.remove('collapsed'); } else { content.style.display = 'none'; arrow.classList.add('collapsed'); } }
-    async saveApiSettings() { const settings = { refreshToken: document.getElementById('refreshToken').value, clientId: document.getElementById('clientId').value, clientSecret: document.getElementById('clientSecret').value, sellerId: document.getElementById('sellerId').value, marketplace: document.getElementById('marketplace').value }; if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); return; } try { await chrome.storage.local.set({ apiSettings: settings }); this.showNotification(locales[this.currentLang].settingsSaved, 'success'); } catch (error) { this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); } }
-    async loadSettings() { try { const result = await chrome.storage.local.get(['apiSettings']); const header = document.getElementById('apiSettingsHeader'); const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (result.apiSettings && result.apiSettings.refreshToken && result.apiSettings.clientId) { const settings = result.apiSettings; document.getElementById('refreshToken').value = settings.refreshToken || ''; document.getElementById('clientId').value = settings.clientId || ''; document.getElementById('clientSecret').value = settings.clientSecret || ''; document.getElementById('sellerId').value = settings.sellerId || ''; document.getElementById('marketplace').value = settings.marketplace || 'US'; content.style.display = 'none'; arrow.classList.add('collapsed'); } else { content.style.display = 'block'; arrow.classList.remove('collapsed'); } } catch (error) { console.error('Settings load error:', error); } }
+    toggleSection(header) { 
+        const content = header.nextElementSibling; 
+        const arrow = header.querySelector('.arrow'); 
+        if (content.style.display === 'none') { 
+            content.style.display = 'block'; 
+            arrow.classList.remove('collapsed'); 
+        } else { 
+            content.style.display = 'none'; 
+            arrow.classList.add('collapsed'); 
+        } 
+    }
+    
+    async saveApiSettings() { 
+        const settings = { 
+            refreshToken: document.getElementById('refreshToken').value, 
+            clientId: document.getElementById('clientId').value, 
+            clientSecret: document.getElementById('clientSecret').value, 
+            sellerId: document.getElementById('sellerId').value, 
+            marketplace: document.getElementById('marketplace').value 
+        }; 
+        
+        if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { 
+            this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); 
+            return; 
+        } 
+        
+        try { 
+            await chrome.storage.local.set({ apiSettings: settings }); 
+            this.showNotification(locales[this.currentLang].settingsSaved, 'success'); 
+            
+            // Ayarlar kaydedildikten sonra SP-API Settings bölümünü kapat
+            const header = document.getElementById('apiSettingsHeader'); 
+            const content = header.nextElementSibling; 
+            const arrow = header.querySelector('.arrow'); 
+            content.style.display = 'none'; 
+            arrow.classList.add('collapsed'); 
+            
+        } catch (error) { 
+            this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); 
+        } 
+    }
+    
+    async loadSettings() { 
+        try { 
+            const result = await chrome.storage.local.get(['apiSettings']); 
+            const header = document.getElementById('apiSettingsHeader'); 
+            const content = header.nextElementSibling; 
+            const arrow = header.querySelector('.arrow'); 
+            
+            if (result.apiSettings && result.apiSettings.refreshToken && result.apiSettings.clientId) { 
+                // Eğer tokenlar ve credentials varsa, bölümü kapalı tut
+                const settings = result.apiSettings; 
+                document.getElementById('refreshToken').value = settings.refreshToken || ''; 
+                document.getElementById('clientId').value = settings.clientId || ''; 
+                document.getElementById('clientSecret').value = settings.clientSecret || ''; 
+                document.getElementById('sellerId').value = settings.sellerId || ''; 
+                document.getElementById('marketplace').value = settings.marketplace || 'US'; 
+                content.style.display = 'none'; 
+                arrow.classList.add('collapsed'); 
+            } else { 
+                // Eğer tokenlar yoksa, bölümü açık tut
+                content.style.display = 'block'; 
+                arrow.classList.remove('collapsed'); 
+            } 
+        } catch (error) { 
+            console.error('Settings load error:', error); 
+        } 
+    }
+    
     showLoading() { 
         document.getElementById('results').innerHTML = `<div class="loading"><div class="spinner"></div><span>${locales[this.currentLang].statusManualCheckPending}</span></div>`; 
         document.getElementById('checkAsins').style.display = 'none';
         document.getElementById('stopCheckBtn').style.display = 'block';
     }
+    
     hideLoading(wasStopped = false) {
         if (!wasStopped) {
             const loadingDiv = document.querySelector('#results .loading');
@@ -312,13 +379,35 @@ class FastChecker {
         }
         this.resetUI();
     }
-    showNotification(message, type = 'info') { const notification = document.createElement('div'); notification.className = `notification ${type}`; notification.textContent = message; document.body.appendChild(notification); setTimeout(() => { if (notification.parentNode) { notification.parentNode.removeChild(notification); } }, 4000); }
-    toggleTheme() { this.showNotification('Theme switcher coming soon!', 'info'); }
-    openSettings() { this.showNotification('Settings panel coming soon!', 'info'); }
-    expandPanel() { this.showNotification('Expand panel feature coming soon!', 'info'); }
+    
+    showNotification(message, type = 'info') { 
+        const notification = document.createElement('div'); 
+        notification.className = `notification ${type}`; 
+        notification.textContent = message; 
+        document.body.appendChild(notification); 
+        setTimeout(() => { 
+            if (notification.parentNode) { 
+                notification.parentNode.removeChild(notification); 
+            } 
+        }, 4000); 
+    }
+    
+    toggleTheme() { 
+        this.showNotification('Theme switcher coming soon!', 'info'); 
+    }
+    
+    openSettings() { 
+        this.showNotification('Settings panel coming soon!', 'info'); 
+    }
+    
+    expandPanel() { 
+        this.showNotification('Expand panel feature coming soon!', 'info'); 
+    }
 }
 
-document.addEventListener('DOMContentLoaded', () => { new FastChecker(); });
+document.addEventListener('DOMContentLoaded', () => { 
+    new FastChecker(); 
+});
 
 function togglePasswordVisibility(id) {
     const input = document.getElementById(id);
