@@ -42,31 +42,41 @@ function renderSettingsView(container) {
     const settingsView = container.querySelector('#fc-settings-view');
     chrome.storage.local.get(['shippingSettings'], (result) => {
         const settings = result.shippingSettings || {};
-        const currencySymbol = (productData && productData.currencyCode) ? productData.currencyCode.replace(/USD/g, '$').replace(/EUR/g, '€').replace(/GBP/g, '£') : '$';
+        // Varsayılan currency: USD
+        const currency = settings.currency || 'USD';
+        const currencySymbols = { USD: '$', EUR: '€', GBP: '£', TRY: '₺' };
         settingsView.innerHTML = `
             <div class="fc-card">
                 <div class="fc-header">
                     <span>⚙️ Kargo Ayarları</span>
-                    <span class="fc-settings-icon" id="fc-back-to-main">↩️</span>
+                    <span class="fc-settings-icon" id="fc-back-to-main">🏠</span>
                 </div>
                 <div class="fc-settings-body">
                     <div class="input-group">
                         <label>E x B x Y (cm)</label>
                         <div class="dimension-inputs">
-                            <input type="number" id="pkgLength" placeholder="E" value="${settings.pkgLength || ''}">
+                            <input type="text" maxlength="4" pattern="[0-9]*" inputmode="numeric" class="fc-dimension-input" id="pkgLength" placeholder="E" value="${settings.pkgLength || ''}">
                             <span>x</span>
-                            <input type="number" id="pkgWidth" placeholder="B" value="${settings.pkgWidth || ''}">
+                            <input type="text" maxlength="4" pattern="[0-9]*" inputmode="numeric" class="fc-dimension-input" id="pkgWidth" placeholder="B" value="${settings.pkgWidth || ''}">
                             <span>x</span>
-                            <input type="number" id="pkgHeight" placeholder="Y" value="${settings.pkgHeight || ''}">
+                            <input type="text" maxlength="4" pattern="[0-9]*" inputmode="numeric" class="fc-dimension-input" id="pkgHeight" placeholder="Y" value="${settings.pkgHeight || ''}">
                         </div>
                     </div>
                     <div class="input-group">
                         <label for="pkgMaxWeight">Max. Koli Ağırlığı (kg)</label>
-                        <input type="number" id="pkgMaxWeight" value="${settings.pkgMaxWeight || ''}">
+                        <input type="text" maxlength="4" pattern="[0-9]*" inputmode="numeric" class="fc-dimension-input" id="pkgMaxWeight" value="${settings.pkgMaxWeight || ''}">
                     </div>
                     <div class="input-group">
-                        <label for="pkgCost">Koli Başı Kargo Ücreti (${currencySymbol})</label>
-                        <input type="number" id="pkgCost" value="${settings.pkgCost || ''}">
+                        <label for="pkgCost">Koli Başı Kargo Ücreti</label>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <input type="text" maxlength="4" pattern="[0-9]*" inputmode="numeric" class="fc-dimension-input" id="pkgCost" value="${settings.pkgCost || ''}">
+                            <select id="pkgCurrency" class="fc-currency-select">
+                                <option value="USD" ${currency === 'USD' ? 'selected' : ''}>$</option>
+                                <option value="EUR" ${currency === 'EUR' ? 'selected' : ''}>€</option>
+                                <option value="GBP" ${currency === 'GBP' ? 'selected' : ''}>£</option>
+                                <option value="TRY" ${currency === 'TRY' ? 'selected' : ''}>₺</option>
+                            </select>
+                        </div>
                     </div>
                     <button id="saveSettingsBtn" class="fc-settings-btn">Ayarları Kaydet</button>
                 </div>
@@ -74,6 +84,12 @@ function renderSettingsView(container) {
         `;
         settingsView.querySelector('#saveSettingsBtn').addEventListener('click', saveShippingSettings);
         settingsView.querySelector('#fc-back-to-main').addEventListener('click', () => toggleView(container));
+        // Sadece rakam girişi için event
+        settingsView.querySelectorAll('.fc-dimension-input').forEach(input => {
+          input.addEventListener('input', function() {
+            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);
+          });
+        });
     });
 }
 
@@ -85,6 +101,7 @@ function saveShippingSettings() {
         pkgHeight: document.getElementById('pkgHeight').value,
         pkgMaxWeight: document.getElementById('pkgMaxWeight').value,
         pkgCost: document.getElementById('pkgCost').value,
+        currency: document.getElementById('pkgCurrency') ? document.getElementById('pkgCurrency').value : 'USD',
     };
     chrome.storage.local.set({ shippingSettings: settings }, () => {
         console.log('FastChecker: Kargo ayarları kaydedildi.');
@@ -333,7 +350,6 @@ function updateUI(container, data, error = null) {
         if (mainView.querySelector('#referralFeeDisplay')) mainView.querySelector('#referralFeeDisplay').textContent = `Referral Fee: ${formatCurrency(currentReferralFee, data.currencyCode)}`;
         profitResult.classList.remove('positive', 'negative'); roiResult.classList.remove('positive', 'negative');
         if (profit > 0) profitResult.classList.add('positive'); else if (profit < 0) profitResult.classList.add('negative');
-        if (roi > 0) roiResult.classList.add('positive'); else if (roi < 0) roiResult.classList.add('negative');
     }
     costInput.addEventListener('input', calculateProfit); costInput.addEventListener('blur', () => formatInput(costInput));
     saleInput.addEventListener('input', calculateProfit); saleInput.addEventListener('blur', () => formatInput(saleInput));
