@@ -487,3 +487,43 @@
     font-size: 13px;
     padding: 10px 0;
 }
+
+/* --- YENİ AYARLAR SAYFASI STİLLERİ --- */
+.fc-settings-view {
+    display: none; /* Varsayılan olarak gizli */
+    padding: 15px;
+}
+
+.fc-settings-view .fc-card-header {
+    margin-bottom: 20px;
+}
+
+.fc-settings-view .input-group {
+    margin-bottom: 15px;
+}
+
+.fc-settings-view .dimension-inputs {
+    display: flex;
+    gap: 8px;
+}
+
+.fc-settings-view .dimension-inputs .input-group {
+    flex: 1;
+}
+
+.fc-settings-btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background-color: var(--fc-purple);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.fc-settings-btn:hover {
+    background-color: #7c4ee3;
+}
