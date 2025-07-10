@@ -13,6 +13,9 @@
 
 /* ANA KONUMLANDIRMA ÇÖZÜMÜ (KOMPAKT & DENGELİ) */
 #fastchecker-product-ui {
+    max-height: 600px;
+    height: 600px;
+    overflow-y: auto;
     width: 290.75px;
     /* Genişliği 290px olarak ayarla */
 
@@ -409,4 +412,78 @@
     color: var(--fc-text-primary);
     font-weight: 400;
     margin-bottom: 2px;
+}
+
+/* EU Market Prices - Scroll olmayan versiyonu */
+.fc-eu-market-prices {
+    margin-top: 10px;
+}
+
+.fc-eu-prices-list {
+    /* max-height ve overflow-y tamamen kaldırıldı - tüm içerik görünsün */
+    padding: 5px;
+    /* Yüksekliği artırıyoruz ki 4 ülke + başlık sığsın */
+    min-height: 140px; /* Minimum yükseklik garantisi */
+}
+
+.fc-eu-market-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.fc-eu-market-table th,
+.fc-eu-market-table td {
+    padding: 5px; /* Padding daha da azaltıldı */
+    text-align: left;
+    border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-eu-market-table th {
+    font-weight: 600;
+    color: var(--fc-text-primary);
+    background-color: var(--fc-bg);
+    /* Tablo başlığı da görünecek - sticky kaldırıldı */
+}
+
+.fc-eu-market-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.fc-eu-market-table td {
+    color: var(--fc-text-secondary);
+}
+
+.fc-eu-market-table td a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.fc-eu-market-table td a:hover {
+    text-decoration: underline;
+}
+
+.fc-eu-price-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--fc-border);
+    font-size: 13px;
+}
+
+.fc-eu-price-row:last-child {
+    border-bottom: none;
+}
+
+.fc-eu-price-row span {
+    font-weight: 600;
+    color: var(--fc-text-primary);
+}
+
+.fc-no-eu-price {
+    text-align: center;
+    color: var(--fc-text-secondary);
+    font-size: 13px;
+    padding: 10px 0;
 }

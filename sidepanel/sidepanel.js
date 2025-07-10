@@ -101,21 +101,21 @@ class FastChecker {
     }
 
     handleManualResult(result) {
-        this.manualResultsStore[result.asin] = result.manual_status;
-        
-        // Mevcut sonucu bul ve en üste taşı
+        // Gelen sonucu direkt olarak ana veri yapısına işle
         const resultIndex = this.results.findIndex(r => r.asin === result.asin);
         if (resultIndex !== -1) {
             const itemToUpdate = this.results[resultIndex];
             
-            // Sonucu listenin başından sil
-            this.results.splice(resultIndex, 1);
-            
-            // Güncellenmiş öğeyi listenin en başına ekle
-            this.results.unshift(itemToUpdate);
-        }
+            // Gelen yeni sonucu direkt olarak ana obje üzerine işle
+            itemToUpdate.manual_status = result.manual_status;
+            itemToUpdate.manual_check_pending = false; // Artık beklemede değil
 
-        this.renderAllResults(); // Arayüzü yeni sıralama ile yeniden çiz
+            // Güncellenmiş objeyi alıp listenin başına taşı
+            this.results.splice(resultIndex, 1);
+            this.results.unshift(itemToUpdate);
+            
+            this.renderAllResults(); // Arayüzü yeni sıralama ve veri ile yeniden çiz
+        }
 
         if (this.pendingManualChecks > 0) this.pendingManualChecks--;
         this.checkIfAllDone();
@@ -143,14 +143,17 @@ class FastChecker {
         div.classList.add('result-row');
         div.id = `result-row-${result.asin}`;
         let statusText = '', statusClass = '';
-        const manualStatus = this.manualResultsStore[result.asin];
+        
+        // Öncelik her zaman sonradan gelen manuel sonuca verilir
+        const manualStatus = result.manual_status;
+
         if (manualStatus) {
             if (manualStatus === 'approval_required') {
                 statusText = locales[this.currentLang].statusManualApprovalRequired; statusClass = 'approval-required';
             } else if (manualStatus === 'does_not_qualify') {
                 statusText = locales[this.currentLang].statusManualDoesNotQualify; statusClass = 'not-eligible';
             }
-        } else {
+        } else { // Manuel sonuç yoksa, ilk API sonucuna bak
             if (result.status === 'error') {
                 statusText = locales[this.currentLang].statusError; statusClass = 'error';
             } else if (result.sellable) {
@@ -203,8 +206,9 @@ class FastChecker {
             const result = this.results.find(r => r.asin === asin);
             if (!result) return null;
             
-            const manualStatus = this.manualResultsStore[result.asin];
             let status = '';
+            // CSV için de direkt olarak result objesindeki son duruma bakalım
+            const manualStatus = result.manual_status;
             if (manualStatus) {
                 status = manualStatus === 'approval_required' ? locales[lang].statusManualApprovalRequired : locales[lang].statusManualDoesNotQualify;
             } else {
@@ -293,14 +297,81 @@ class FastChecker {
         if (loadingDiv) loadingDiv.remove();
     }
     
-    toggleSection(header) { const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (content.style.display === 'none') { content.style.display = 'block'; arrow.classList.remove('collapsed'); } else { content.style.display = 'none'; arrow.classList.add('collapsed'); } }
-    async saveApiSettings() { const settings = { refreshToken: document.getElementById('refreshToken').value, clientId: document.getElementById('clientId').value, clientSecret: document.getElementById('clientSecret').value, sellerId: document.getElementById('sellerId').value, marketplace: document.getElementById('marketplace').value }; if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); return; } try { await chrome.storage.local.set({ apiSettings: settings }); this.showNotification(locales[this.currentLang].settingsSaved, 'success'); } catch (error) { this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); } }
-    async loadSettings() { try { const result = await chrome.storage.local.get(['apiSettings']); const header = document.getElementById('apiSettingsHeader'); const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (result.apiSettings && result.apiSettings.refreshToken && result.apiSettings.clientId) { const settings = result.apiSettings; document.getElementById('refreshToken').value = settings.refreshToken || ''; document.getElementById('clientId').value = settings.clientId || ''; document.getElementById('clientSecret').value = settings.clientSecret || ''; document.getElementById('sellerId').value = settings.sellerId || ''; document.getElementById('marketplace').value = settings.marketplace || 'US'; content.style.display = 'none'; arrow.classList.add('collapsed'); } else { content.style.display = 'block'; arrow.classList.remove('collapsed'); } } catch (error) { console.error('Settings load error:', error); } }
+    toggleSection(header) { 
+        const content = header.nextElementSibling; 
+        const arrow = header.querySelector('.arrow'); 
+        if (content.style.display === 'none') { 
+            content.style.display = 'block'; 
+            arrow.classList.remove('collapsed'); 
+        } else { 
+            content.style.display = 'none'; 
+            arrow.classList.add('collapsed'); 
+        } 
+    }
+    
+    async saveApiSettings() { 
+        const settings = { 
+            refreshToken: document.getElementById('refreshToken').value, 
+            clientId: document.getElementById('clientId').value, 
+            clientSecret: document.getElementById('clientSecret').value, 
+            sellerId: document.getElementById('sellerId').value, 
+            marketplace: document.getElementById('marketplace').value 
+        }; 
+        
+        if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { 
+            this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); 
+            return; 
+        } 
+        
+        try { 
+            await chrome.storage.local.set({ apiSettings: settings }); 
+            this.showNotification(locales[this.currentLang].settingsSaved, 'success'); 
+            
+            // Ayarlar kaydedildikten sonra SP-API Settings bölümünü kapat
+            const header = document.getElementById('apiSettingsHeader'); 
+            const content = header.nextElementSibling; 
+            const arrow = header.querySelector('.arrow'); 
+            content.style.display = 'none'; 
+            arrow.classList.add('collapsed'); 
+            
+        } catch (error) { 
+            this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); 
+        } 
+    }
+    
+    async loadSettings() { 
+        try { 
+            const result = await chrome.storage.local.get(['apiSettings']); 
+            const header = document.getElementById('apiSettingsHeader'); 
+            const content = header.nextElementSibling; 
+            const arrow = header.querySelector('.arrow'); 
+            
+            if (result.apiSettings && result.apiSettings.refreshToken && result.apiSettings.clientId) { 
+                // Eğer tokenlar ve credentials varsa, bölümü kapalı tut
+                const settings = result.apiSettings; 
+                document.getElementById('refreshToken').value = settings.refreshToken || ''; 
+                document.getElementById('clientId').value = settings.clientId || ''; 
+                document.getElementById('clientSecret').value = settings.clientSecret || ''; 
+                document.getElementById('sellerId').value = settings.sellerId || ''; 
+                document.getElementById('marketplace').value = settings.marketplace || 'US'; 
+                content.style.display = 'none'; 
+                arrow.classList.add('collapsed'); 
+            } else { 
+                // Eğer tokenlar yoksa, bölümü açık tut
+                content.style.display = 'block'; 
+                arrow.classList.remove('collapsed'); 
+            } 
+        } catch (error) { 
+            console.error('Settings load error:', error); 
+        } 
+    }
+    
     showLoading() { 
         document.getElementById('results').innerHTML = `<div class="loading"><div class="spinner"></div><span>${locales[this.currentLang].statusManualCheckPending}</span></div>`; 
         document.getElementById('checkAsins').style.display = 'none';
         document.getElementById('stopCheckBtn').style.display = 'block';
     }
+    
     hideLoading(wasStopped = false) {
         if (!wasStopped) {
             const loadingDiv = document.querySelector('#results .loading');
@@ -308,13 +379,35 @@ class FastChecker {
         }
         this.resetUI();
     }
-    showNotification(message, type = 'info') { const notification = document.createElement('div'); notification.className = `notification ${type}`; notification.textContent = message; document.body.appendChild(notification); setTimeout(() => { if (notification.parentNode) { notification.parentNode.removeChild(notification); } }, 4000); }
-    toggleTheme() { this.showNotification('Theme switcher coming soon!', 'info'); }
-    openSettings() { this.showNotification('Settings panel coming soon!', 'info'); }
-    expandPanel() { this.showNotification('Expand panel feature coming soon!', 'info'); }
+    
+    showNotification(message, type = 'info') { 
+        const notification = document.createElement('div'); 
+        notification.className = `notification ${type}`; 
+        notification.textContent = message; 
+        document.body.appendChild(notification); 
+        setTimeout(() => { 
+            if (notification.parentNode) { 
+                notification.parentNode.removeChild(notification); 
+            } 
+        }, 4000); 
+    }
+    
+    toggleTheme() { 
+        this.showNotification('Theme switcher coming soon!', 'info'); 
+    }
+    
+    openSettings() { 
+        this.showNotification('Settings panel coming soon!', 'info'); 
+    }
+    
+    expandPanel() { 
+        this.showNotification('Expand panel feature coming soon!', 'info'); 
+    }
 }
 
-document.addEventListener('DOMContentLoaded', () => { new FastChecker(); });
+document.addEventListener('DOMContentLoaded', () => { 
+    new FastChecker(); 
+});
 
 function togglePasswordVisibility(id) {
     const input = document.getElementById(id);

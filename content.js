@@ -17,32 +17,30 @@ function createUIContainer() {
     const rightCol = document.getElementById('rightCol');
 
     if (rightCol) {
-        // --- SELLERAMP TEKNİĞİ: KESİN ÇÖZÜM ---
-        // 1. Adım: #rightCol'u, içindeki elementlerin kendisine göre konumlanabilmesi için
-        // bir "konumlandırma çapası" (positioning anchor) yap.
         rightCol.style.position = 'relative';
-
-        // 2. Adım: Kendi UI'ımızı #rightCol'un içine ekle.
-        // CSS dosyamızdaki `position: absolute` kuralı geri kalan işi halledecek.
         rightCol.prepend(container);
     } else {
-        // #rightCol bulunamazsa hata ver ve devam etme.
         console.error('FastChecker: Konumlandırma için #rightCol bulunamadı.');
         return null;
     }
     return container;
 }
 
+// --- GÜÇLENDİRİLMİŞ formatCurrency ---
 function formatCurrency(amount, currency) {
-    if (typeof amount !== 'number') return 'N/A';
-    const options = { style: 'currency', currency };
-    switch (currency) {
-        case 'USD': return amount.toLocaleString('en-US', options);
-        case 'CAD': return amount.toLocaleString('en-CA', options);
-        case 'GBP': return amount.toLocaleString('en-GB', options);
-        case 'EUR': return amount.toLocaleString('de-DE', options); // Avrupa için genel bir format
-        case 'AUD': return amount.toLocaleString('en-AU', options);
-        default: return `${amount.toFixed(2)} ${currency}`;
+    if (typeof amount !== 'number' || isNaN(amount)) {
+        return 'N/A';
+    }
+    if (typeof currency !== 'string' || currency.length < 3) {
+        return amount.toFixed(2);
+    }
+    try {
+        const options = { style: 'currency', currency: currency.toUpperCase() };
+        const locales = { 'USD': 'en-US', 'CAD': 'en-CA', 'GBP': 'en-GB', 'EUR': 'de-DE', 'AUD': 'en-AU' };
+        return amount.toLocaleString(locales[currency.toUpperCase()] || 'en-US', options);
+    } catch (e) {
+        console.error(`formatCurrency hatası: amount=${amount}, currency=${currency}`, e);
+        return `${amount.toFixed(2)} ${currency}`;
     }
 }
 
@@ -51,42 +49,41 @@ function truncateTitle(title, maxLength = 50) {
     return title.substr(0, title.lastIndexOf(' ', maxLength)) + '...';
 }
 
+// --- GÜÇLENDİRİLMİŞ updateUI ---
 function updateUI(container, data, error = null) {
     if (error) {
         container.innerHTML = `<div class="fc-header"><span></span><span class="fc-close">&times;</span></div><div class="fc-error">Hata: ${error}</div>`;
         container.querySelector('.fc-close').addEventListener('click', () => container.remove());
         return;
     }
-    
-    const sellableStatus = data.isSellable ? '<span class="fc-status fc-sellable">SATILABİLİR</span>' : '<span class="fc-status fc-not-sellable">ONAY GEREKLİ</span>';
-    
 
-    let sellersHtml = data.offers.map(offer => {
+    const offers = (data.offers || []).filter(Boolean);
+    const defaultCurrency = data.currencyCode || 'USD';
+    const sellableStatus = data.isSellable ? '<span class="fc-status fc-sellable">SATILABİLİR</span>' : '<span class="fc-status fc-not-sellable">ONAY GEREKLİ</span>';
+
+    let sellersHtml = offers.map(offer => {
         const sellerId = offer.SellerId || 'N/A';
         const sellerLink = `https://www.amazon.com/sp?ie=UTF8&seller=${sellerId}`;
-        const priceHtml = offer.IsBuyBoxWinner
-            ? `<span class='fc-seller-price'><b>${formatCurrency(offer.ListingPrice.Amount, offer.ListingPrice.CurrencyCode)}</b></span>`
-            : `<span class='fc-seller-price'>${formatCurrency(offer.ListingPrice.Amount, offer.ListingPrice.CurrencyCode)}</span>`;
+        const priceAmount = offer.ListingPrice?.Amount;
+        const priceCurrency = offer.ListingPrice?.CurrencyCode || defaultCurrency;
+        const priceHtml = offer.IsBuyBoxWinner ? `<b>${formatCurrency(priceAmount, priceCurrency)}</b>` : formatCurrency(priceAmount, priceCurrency);
         return `
         <div class="fc-seller-row">
             <span class="fc-seller-ffm">${offer.IsFulfilledByAmazon ? 'FBA' : 'FBM'}</span>
             <a href="${sellerLink}" target="_blank" class="fc-seller-id">${sellerId}</a>
-            ${priceHtml}
+            <span class="fc-seller-price">${priceHtml}</span>
         </div>
     `}).join('');
     if (!sellersHtml) sellersHtml = '<div class="fc-no-seller">Aktif teklif yok.</div>';
 
     container.innerHTML = `
-        <div class="fc-header">
-            <span>✨ FastChecker AI Analysis</span>
-            <span class="fc-close">&times;</span>
-        </div>
+        <div class="fc-header"><span>✨ FastChecker AI Analysis</span><span class="fc-close">&times;</span></div>
         <div class="fc-card fc-main-info">
-            <div class="fc-main-info-3col">
+             <div class="fc-main-info-3col">
                 <div class="fc-main-col fc-main-img"><img class="fc-main-info-img" src="${data.imageUrl || ''}" alt="${data.title || ''}"></div>
                 <div class="fc-main-col fc-main-asin-ean">
-                    <div class="fc-main-asin"><b>ASIN:</b> ${data.asin}</div>
-                    <div class="fc-main-ean"><b>EAN:</b> ${data.ean}</div>
+                    <div class="fc-main-asin"><b>ASIN:</b> ${data.asin || 'N/A'}</div>
+                    <div class="fc-main-ean"><b>EAN:</b> ${data.ean || 'N/A'}</div>
                 </div>
                 <div class="fc-main-col fc-main-brand">
                     <div class="fc-main-brand-label"><b>Marka:</b></div>
@@ -94,61 +91,26 @@ function updateUI(container, data, error = null) {
                 </div>
             </div>
             <div class="fc-main-info-row">
-                <div class="fc-main-dim"><b>Boyutlar:</b> ${data.dimensions}</div>
-                <div class="fc-main-weight"><b>Ağırlık:</b> ${data.packageWeight}</div>
+                <div class="fc-main-dim"><b>Boyutlar:</b> ${data.dimensions || 'N/A'}</div>
+                <div class="fc-main-weight"><b>Ağırlık:</b> ${data.packageWeight || 'N/A'}</div>
             </div>
             <div class="fc-main-restriction">${sellableStatus}</div>
         </div>
-
-        <div class="fc-card fc-finance-calculator">
+        <div class="fc-card fc-finance-calculator"> 
             <div class="fc-card-header"><span>Profit Calculator</span></div>
-            <div class="fc-input-row">
-                <div class="input-group">
-                    <label for="bsrInput">BSR</label>
-                    <input type="text" id="bsrInput" value="N/A" readonly>
-                </div>
-                <div class="input-group">
-                    <label for="estimatedSalesInput">Estimated Sales</label>
-                    <input type="text" id="estimatedSalesInput" value="N/A" readonly>
-                </div>
-            </div>
-            <div class="fc-input-row">
-                <div class="input-group">
-                    <label for="costInput">Cost</label>
-                    <input type="text" inputmode="decimal" pattern="[0-9]*" id="costInput" value="0" autocomplete="off" style="appearance: textfield;">
-                </div>
-                <div class="input-group">
-                    <label for="saleInput">Sale</label>
-                    <input type="text" inputmode="decimal" pattern="[0-9]*" id="saleInput" value="0" autocomplete="off" style="appearance: textfield;">
-                </div>
-            </div>
-
-            <div class="fc-result-row">
-                <div class="result-item">
-                    <span>Profit</span>
-                    <span id="profitResult" class="calculated-value">0.00</span>
-                </div>
-                <div class="result-item">
-                    <span>R.O.I</span>
-                    <span id="roiResult" class="calculated-value">0.00%</span>
-                </div>
-                <div class="result-item">
-                    <span>Breakeven</span>
-                    <span id="breakevenResult" class="calculated-value">0.00</span>
-                </div>
-            </div>
-
-            <div class="fc-fee-details">
-                <span id="referralFeeDisplay">Referral Fee: ${formatCurrency(data.referralFee, data.currencyCode)}</span>
-                <span id="fbaFeeDisplay">FBA Fee: ${formatCurrency(data.fbaFee, data.currencyCode)}</span>
-            </div>
+            <div class="fc-input-row"><div class="input-group"><label for="bsrInput">BSR</label><input type="text" id="bsrInput" value="N/A" readonly></div><div class="input-group"><label for="estimatedSalesInput">Estimated Sales</label><input type="text" id="estimatedSalesInput" value="N/A" readonly></div></div>
+            <div class="fc-input-row"><div class="input-group"><label for="costInput">Cost</label><input type="text" inputmode="decimal" pattern="[0-9]*" id="costInput" value="0" autocomplete="off" style="appearance: textfield;"></div><div class="input-group"><label for="saleInput">Sale</label><input type="text" inputmode="decimal" pattern="[0-9]*" id="saleInput" value="0" autocomplete="off" style="appearance: textfield;"></div></div>
+            <div class="fc-result-row"><div class="result-item"><span>Profit</span><span id="profitResult" class="calculated-value">0.00</span></div><div class="result-item"><span>R.O.I</span><span id="roiResult" class="calculated-value">0.00%</span></div><div class="result-item"><span>Breakeven</span><span id="breakevenResult" class="calculated-value">0.00</span></div></div>
+            <div class="fc-fee-details"><span id="referralFeeDisplay">Referral Fee: ${formatCurrency(data.referralFee, defaultCurrency)}</span><span id="fbaFeeDisplay">FBA Fee: ${formatCurrency(data.fbaFee, defaultCurrency)}</span></div>
         </div>
-
-        <div class="fc-card fc-sellers">
+        <div class="fc-card fc-sellers"><div class="fc-card-header"><span class="icon">📦</span><h4>Satıcılar (${offers.length})</h4></div><div class="fc-seller-list">${sellersHtml}</div></div>
+        <div class="fc-card fc-eu-market-prices" id="fc-eu-market-prices">
             <div class="fc-card-header">
-                <span class="icon">📦</span><h4>Satıcılar (${data.offers.length})</h4>
+                <span class="icon">🇪🇺</span><h4>EU Market Fiyatları</h4>
             </div>
-            <div class="fc-seller-list">${sellersHtml}</div>
+            <div class="fc-eu-prices-list" style="max-height: 120px; overflow-y: auto;">
+                <div class="fc-no-eu-price">Fiyat verisi yok.</div>
+            </div>
         </div>
     `;
 
@@ -310,12 +272,75 @@ function updateUI(container, data, error = null) {
     calculateProfit();
 }
 
+// --- EU MARKET FİYATLARI ALANI EKLEME ---
+function renderEuMarketPrices(container, asin, prices) {
+    const countryFlags = {
+        'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'NL': '🇳🇱',
+        'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺',
+        'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪',
+        'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷'
+    };
+    const marketDomains = {
+        'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'NL': 'nl',
+        'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au',
+        'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae',
+        'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr'
+    };
+
+    let euBox = container.querySelector('#fc-eu-market-prices');
+    if (!euBox) return;
+    const list = euBox.querySelector('.fc-eu-prices-list');
+    if (!list) return;
+
+    if (!prices || prices.length === 0) {
+        list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>';
+        return;
+    }
+
+    // Tablo başlıklarını ekle
+    list.innerHTML = `
+        <table class="fc-eu-market-table">
+            <thead>
+                <tr>
+                    <th>Ülke</th>
+                    <th>Adet</th>
+                    <th>Fiyat</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${prices.map(p => {
+                    const flag = countryFlags[p.market] || '';
+                    const domain = marketDomains[p.market] || 'com';
+                    const productUrl = `https://www.amazon.${domain}/dp/${asin}`;
+                    return `
+                        <tr>
+                            <td>${flag} ${p.market}</td>
+                            <td>${p.moq}</td>
+                            <td><a href="${productUrl}" target="_blank">${formatCurrency(p.price, p.currency || 'EUR')}</a></td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+// --- BACKGROUND'DAN GELEN MESAJLARI DİNLE ---
+chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === 'euMarketPrices' && msg.asin) {
+        let container = document.getElementById('fastchecker-product-ui');
+        if (!container) container = createUIContainer();
+        renderEuMarketPrices(container, msg.asin, msg.prices);
+    }
+});
+
 // Sayfa yüklendiğinde otomatik başlatıcı
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
     const container = createUIContainer();
     if (!container) return;
+    
     // Backend'den veri çek
     fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=US`)
         .then(r => r.json())
@@ -327,4 +352,17 @@ function updateUI(container, data, error = null) {
             }
         })
         .catch(e => updateUI(container, {}, e.message));
+
+    // --- EU MARKET FİYATLARI ALANI HER ZAMAN OLUŞSUN ---
+    renderEuMarketPrices(container, asin, []); // Başlangıçta boş tablo göster
+    // --- EU MARKET FİYATLARI İSTEĞİ ---
+    chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
+        action: 'fetchEuMarketPrices',
+        asin: asin,
+        markets: ['DE', 'FR', 'IT', 'ES', 'NL']
+    }, (resp) => {
+        if (resp && !resp.success) {
+            console.warn('EU market fiyat isteği başarısız:', resp.error);
+        }
+    });
 })();
