@@ -101,21 +101,21 @@ class FastChecker {
     }
 
     handleManualResult(result) {
-        this.manualResultsStore[result.asin] = result.manual_status;
-        
-        // Mevcut sonucu bul ve en üste taşı
+        // Gelen sonucu direkt olarak ana veri yapısına işle
         const resultIndex = this.results.findIndex(r => r.asin === result.asin);
         if (resultIndex !== -1) {
             const itemToUpdate = this.results[resultIndex];
             
-            // Sonucu listenin başından sil
-            this.results.splice(resultIndex, 1);
-            
-            // Güncellenmiş öğeyi listenin en başına ekle
-            this.results.unshift(itemToUpdate);
-        }
+            // Gelen yeni sonucu direkt olarak ana obje üzerine işle
+            itemToUpdate.manual_status = result.manual_status;
+            itemToUpdate.manual_check_pending = false; // Artık beklemede değil
 
-        this.renderAllResults(); // Arayüzü yeni sıralama ile yeniden çiz
+            // Güncellenmiş objeyi alıp listenin başına taşı
+            this.results.splice(resultIndex, 1);
+            this.results.unshift(itemToUpdate);
+            
+            this.renderAllResults(); // Arayüzü yeni sıralama ve veri ile yeniden çiz
+        }
 
         if (this.pendingManualChecks > 0) this.pendingManualChecks--;
         this.checkIfAllDone();
@@ -143,14 +143,17 @@ class FastChecker {
         div.classList.add('result-row');
         div.id = `result-row-${result.asin}`;
         let statusText = '', statusClass = '';
-        const manualStatus = this.manualResultsStore[result.asin];
+        
+        // Öncelik her zaman sonradan gelen manuel sonuca verilir
+        const manualStatus = result.manual_status;
+
         if (manualStatus) {
             if (manualStatus === 'approval_required') {
                 statusText = locales[this.currentLang].statusManualApprovalRequired; statusClass = 'approval-required';
             } else if (manualStatus === 'does_not_qualify') {
                 statusText = locales[this.currentLang].statusManualDoesNotQualify; statusClass = 'not-eligible';
             }
-        } else {
+        } else { // Manuel sonuç yoksa, ilk API sonucuna bak
             if (result.status === 'error') {
                 statusText = locales[this.currentLang].statusError; statusClass = 'error';
             } else if (result.sellable) {
@@ -203,8 +206,9 @@ class FastChecker {
             const result = this.results.find(r => r.asin === asin);
             if (!result) return null;
             
-            const manualStatus = this.manualResultsStore[result.asin];
             let status = '';
+            // CSV için de direkt olarak result objesindeki son duruma bakalım
+            const manualStatus = result.manual_status;
             if (manualStatus) {
                 status = manualStatus === 'approval_required' ? locales[lang].statusManualApprovalRequired : locales[lang].statusManualDoesNotQualify;
             } else {

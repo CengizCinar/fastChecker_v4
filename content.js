@@ -310,6 +310,41 @@ function updateUI(container, data, error = null) {
     calculateProfit();
 }
 
+// --- EU MARKET FİYATLARI ALANI EKLEME ---
+function renderEuMarketPrices(container, asin, prices) {
+    let euBox = container.querySelector('#fc-eu-market-prices');
+    if (!euBox) {
+        euBox = document.createElement('div');
+        euBox.id = 'fc-eu-market-prices';
+        euBox.className = 'fc-card fc-eu-market-prices';
+        euBox.innerHTML = `
+            <div class="fc-card-header">
+                <span class="icon">🇪🇺</span><h4>EU Market Fiyatları</h4>
+            </div>
+            <div class="fc-eu-prices-list" style="max-height: 120px; overflow-y: auto;"></div>
+        `;
+        container.appendChild(euBox);
+    }
+    const list = euBox.querySelector('.fc-eu-prices-list');
+    if (!prices || prices.length === 0) {
+        list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>';
+        return;
+    }
+    list.innerHTML = prices.map(p =>
+        `<div class="fc-eu-price-row"><b>${p.market}</b> - MOQ: ${p.moq} - <span>${formatCurrency(p.price, p.currency || 'EUR')}</span></div>`
+    ).join('');
+}
+
+// --- BACKGROUND'DAN GELEN MESAJLARI DİNLE ---
+chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === 'euMarketPrices' && msg.asin) {
+        // UI container'ı bul
+        let container = document.getElementById('fastchecker-product-ui');
+        if (!container) container = createUIContainer();
+        renderEuMarketPrices(container, msg.asin, msg.prices);
+    }
+});
+
 // Sayfa yüklendiğinde otomatik başlatıcı
 (function() {
     const asin = getAsinFromUrl();
@@ -327,4 +362,15 @@ function updateUI(container, data, error = null) {
             }
         })
         .catch(e => updateUI(container, {}, e.message));
+    // --- EU MARKET FİYATLARI İSTEĞİ ---
+    chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
+        action: 'fetchEuMarketPrices',
+        asin: asin,
+        markets: ['DE', 'FR', 'IT', 'ES', 'NL']
+    }, (resp) => {
+        if (resp && !resp.success) {
+            // Hata logla, UI'ya yazmaya gerek yok
+            console.warn('EU market fiyat isteği başarısız:', resp.error);
+        }
+    });
 })();

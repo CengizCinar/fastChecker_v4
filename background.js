@@ -12,7 +12,7 @@ function connectWebSocket() {
         console.log("BACKGROUND: WebSocket bağlantısı aktif.");
         return;
     }
-    const wsUrl = "wss://fastchecker-websocket-urh7.onrender.com";
+    const wsUrl = "wss://fastcheckerwebsocket-production.up.railway.app/";
     ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log("BACKGROUND: WebSocket bağlantısı başarıyla kuruldu.");
     ws.onmessage = async (event) => {
@@ -25,6 +25,14 @@ function connectWebSocket() {
                 await chrome.storage.local.set({ manualResultsStore });
                 console.log(`BACKGROUND: ${msg.asin} durumu (${msg.manual_status}) kalıcı hafızaya kaydedildi.`);
                 chrome.runtime.sendMessage({ action: 'manualResult', result: msg });
+            }
+            // --- EU MARKET FİYATLARI ---
+            if (msg.type === 'eu-market-result' && msg.asin && Array.isArray(msg.prices)) {
+                chrome.runtime.sendMessage({
+                    action: 'euMarketPrices',
+                    asin: msg.asin,
+                    prices: msg.prices
+                });
             }
         } catch (e) { console.error('BACKGROUND: WebSocket mesajı işlenemedi:', e); }
     };
@@ -86,6 +94,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         return true; // Asenkron yanıt için
     }
+
+    // 4. EU MARKET FİYATLARI İSTEĞİ
+    if (request.action === 'fetchEuMarketPrices' && request.asin) {
+        connectWebSocket();
+        // Default marketler: DE, FR, IT, ES, NL
+        const markets = request.markets || ['DE', 'FR', 'IT', 'ES', 'NL'];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'eu-market-request',
+                asin: request.asin,
+                markets: markets
+            }));
+            sendResponse({ success: true });
+        } else {
+            sendResponse({ success: false, error: 'WebSocket bağlantısı yok.' });
+        }
+        return true;
+    }
 });
 
 // --- render websocket ---
@@ -93,7 +119,7 @@ async function handleAsinCheck(data, sendResponse) {
     try {
         const { asins, credentials, sellerId, marketplace } = data;
         const spApiHelper = new SPAPIHelper();
-        const postaKutusuAdresi = "https://fastchecker-websocket-urh7.onrender.com/mektup-at";
+        const postaKutusuAdresi = "https://fastcheckerwebsocket-production.up.railway.app/mektup-at";
 
         for (let i = 0; i < asins.length; i++) {
             if (isCheckStopped) {

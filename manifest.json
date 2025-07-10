@@ -14,7 +14,7 @@
       "https://sellingpartnerapi-eu.amazon.com/*",
       "https://sellingpartnerapi-fe.amazon.com/*",
       "https://*.amazon.com/*",
-      "https://fastcheckerwebsocket.glitch.me/*"
+      "https://fastcheckerwebsocket-production.up.railway.app/*"
    ],
    "background": {
       "service_worker": "background.js"
