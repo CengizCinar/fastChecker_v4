@@ -2,6 +2,8 @@
 
 // --- Global Değişkenler ---
 let productData = {}; // Gelen ürün verisini globalde tutmak için
+let calculatedCostPerItem = null;
+let lowestEuPrice = null;
 
 // --- Orijinal Fonksiyonlar ---
 function getAsinFromUrl() {
@@ -132,7 +134,7 @@ function calculateAndDisplayShipping() {
         if (!shippingDetailsEl) return;
 
         // Ayarlar veya ürün verisi eksikse hesaplama yapma
-        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !productData.package_weight)) {
+        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !product.package_weight)) {
             shippingDetailsEl.innerHTML = ''; return;
         }
 
@@ -205,10 +207,25 @@ function calculateAndDisplayShipping() {
 
         if (itemsPerBox > 0) {
             shippingDetailsEl.innerHTML = `Sığacak Adet: <b>${itemsPerBox}</b> | Adet Başı Kargo: <b>${formatCurrency(costPerItem, settings.currency)}</b>`;
+            calculatedCostPerItem = costPerItem;
+            updateCostInput();
         } else {
             shippingDetailsEl.innerHTML = '<span class="negative">Ürün koliye sığmıyor (Hacim/Ağırlık).</span>';
         }
     });
+}
+
+function updateCostInput() {
+    if (calculatedCostPerItem !== null && lowestEuPrice !== null) {
+        const costInput = document.getElementById('costInput');
+        if (costInput) {
+            const totalCost = (lowestEuPrice + calculatedCostPerItem) * 1.17;
+            costInput.value = totalCost.toFixed(2);
+            // Manuel olarak bir input olayı tetikle
+            const event = new Event('input', { bubbles: true });
+            costInput.dispatchEvent(event);
+        }
+    }
 }
 
 
@@ -377,6 +394,12 @@ function renderEuMarketPrices(container, asin, prices) {
                 `).join('')}
             </tbody>
         </table>`;
+
+    const euroPrices = prices.filter(p => p.currency === 'EUR');
+    if (euroPrices.length > 0) {
+        lowestEuPrice = Math.min(...euroPrices.map(p => p.price));
+        updateCostInput();
+    }
 }
 
 chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListener((msg) => {
