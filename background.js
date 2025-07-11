@@ -161,7 +161,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         asinToTabIdMap[request.asin] = tabId;
 
         connectPriceTrackerWebSocket();
-        const markets = request.markets || ['DE', 'FR', 'IT', 'ES', 'NL'];
+        const markets = request.markets || ['DE', 'FR', 'IT', 'ES'];
         const message = {
             type: "/eu-market-request",
             asin: request.asin,

@@ -2,6 +2,8 @@
 
 // --- Global Değişkenler ---
 let productData = {}; // Gelen ürün verisini globalde tutmak için
+let calculatedCostPerItem = null;
+let lowestEuPrice = null;
 
 // --- Orijinal Fonksiyonlar ---
 function getAsinFromUrl() {
@@ -132,7 +134,7 @@ function calculateAndDisplayShipping() {
         if (!shippingDetailsEl) return;
 
         // Ayarlar veya ürün verisi eksikse hesaplama yapma
-        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !productData.package_weight)) {
+        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !product.package_weight)) {
             shippingDetailsEl.innerHTML = ''; return;
         }
 
@@ -204,11 +206,26 @@ function calculateAndDisplayShipping() {
         const costPerItem = itemsPerBox > 0 ? pkgCost / itemsPerBox : 0;
 
         if (itemsPerBox > 0) {
-            shippingDetailsEl.innerHTML = `Sığacak Adet: <b>${itemsPerBox}</b> | Adet Başı Kargo: <b>${formatCurrency(costPerItem, productData.currencyCode)}</b>`;
+            shippingDetailsEl.innerHTML = `Sığacak Adet: <b>${itemsPerBox}</b> | Adet Başı Kargo: <b>${formatCurrency(costPerItem, settings.currency)}</b>`;
+            calculatedCostPerItem = costPerItem;
+            updateCostInput();
         } else {
             shippingDetailsEl.innerHTML = '<span class="negative">Ürün koliye sığmıyor (Hacim/Ağırlık).</span>';
         }
     });
+}
+
+function updateCostInput() {
+    if (calculatedCostPerItem !== null && lowestEuPrice !== null) {
+        const costInput = document.getElementById('costInput');
+        if (costInput) {
+            const totalCost = (lowestEuPrice + calculatedCostPerItem) * 1.17;
+            costInput.value = totalCost.toFixed(2);
+            // Manuel olarak bir input olayı tetikle
+            const event = new Event('input', { bubbles: true });
+            costInput.dispatchEvent(event);
+        }
+    }
 }
 
 
@@ -280,7 +297,7 @@ function updateUI(container, data, error = null) {
                 </div>
             </div>
             <div class="fc-main-info-row">
-                <div class="fc-main-dim"><b>Boyutlar:</b> ${data.dimensions || 'N/A'}</div>
+                <div class="fc-main-dim"><b>Boyut:</b> ${data.dimensions || 'N/A'}</div>
                 <div class="fc-main-weight"><b>Ağırlık:</b> ${data.packageWeight || 'N/A'}</div>
             </div>
             <div class="fc-main-restriction">${sellableStatus}</div>
@@ -359,8 +376,8 @@ function updateUI(container, data, error = null) {
 }
 
 function renderEuMarketPrices(container, asin, prices) {
-    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'NL': '🇳🇱', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
-    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'NL': 'nl', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
+    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
+    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
     let euBox = container.querySelector('#fc-eu-market-prices'); if (!euBox) return;
     const list = euBox.querySelector('.fc-eu-prices-list'); if (!list) return;
     if (!prices || prices.length === 0) { list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>'; return; }
@@ -377,6 +394,12 @@ function renderEuMarketPrices(container, asin, prices) {
                 `).join('')}
             </tbody>
         </table>`;
+
+    const euroPrices = prices.filter(p => p.currency === 'EUR');
+    if (euroPrices.length > 0) {
+        lowestEuPrice = Math.min(...euroPrices.map(p => p.price));
+        updateCostInput();
+    }
 }
 
 chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListener((msg) => {
@@ -403,7 +426,7 @@ chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListen
     chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
         action: 'fetchEuMarketPrices',
         asin: asin,
-        markets: ['DE', 'FR', 'IT', 'ES', 'NL']
+        markets: ['DE', 'FR', 'IT', 'ES']
     }, (resp) => {
         if (resp && !resp.success) {
             console.warn('EU market fiyat isteği başarısız:', resp.error);
