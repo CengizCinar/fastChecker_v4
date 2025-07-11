@@ -34,7 +34,7 @@
    ],
    "content_scripts": [
       {
-         "matches": ["*://*.amazon.com/*p/*", "*://*.amazon.co.uk/*p/*", "*://*.amazon.de/*p/*", "*://*.amazon.fr/*p/*", "*://*.amazon.es/*p/*", "*://*.amazon.it/*p/*", "*://*.amazon.nl/*p/*", "*://*.amazon.ca/*p/*", "*://*.amazon.com.mx/*p/*", "*://*.amazon.com.au/*p/*", "*://*.amazon.co.jp/*p/*", "*://*.amazon.in/*p/*", "*://*.amazon.com.br/*p/*", "*://*.amazon.cn/*p/*"],
+         "matches": ["*://*.amazon.com/*p/*", "*://*.amazon.co.uk/*p/*", "*://*.amazon.de/*p/*", "*://*.amazon.fr/*p/*", "*://*.amazon.es/*p/*", "*://*.amazon.it/*p/*", "*://*.amazon.ca/*p/*", "*://*.amazon.com.mx/*p/*", "*://*.amazon.com.au/*p/*", "*://*.amazon.co.jp/*p/*", "*://*.amazon.in/*p/*", "*://*.amazon.com.br/*p/*", "*://*.amazon.cn/*p/*"],
          "js": ["content.js"],
          "css": ["product-ui.css"]
       }

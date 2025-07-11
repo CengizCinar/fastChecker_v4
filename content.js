@@ -204,7 +204,7 @@ function calculateAndDisplayShipping() {
         const costPerItem = itemsPerBox > 0 ? pkgCost / itemsPerBox : 0;
 
         if (itemsPerBox > 0) {
-            shippingDetailsEl.innerHTML = `Sığacak Adet: <b>${itemsPerBox}</b> | Adet Başı Kargo: <b>${formatCurrency(costPerItem, productData.currencyCode)}</b>`;
+            shippingDetailsEl.innerHTML = `Sığacak Adet: <b>${itemsPerBox}</b> | Adet Başı Kargo: <b>${formatCurrency(costPerItem, settings.currency)}</b>`;
         } else {
             shippingDetailsEl.innerHTML = '<span class="negative">Ürün koliye sığmıyor (Hacim/Ağırlık).</span>';
         }
@@ -280,7 +280,7 @@ function updateUI(container, data, error = null) {
                 </div>
             </div>
             <div class="fc-main-info-row">
-                <div class="fc-main-dim"><b>Boyutlar:</b> ${data.dimensions || 'N/A'}</div>
+                <div class="fc-main-dim"><b>Boyut:</b> ${data.dimensions || 'N/A'}</div>
                 <div class="fc-main-weight"><b>Ağırlık:</b> ${data.packageWeight || 'N/A'}</div>
             </div>
             <div class="fc-main-restriction">${sellableStatus}</div>
@@ -359,8 +359,8 @@ function updateUI(container, data, error = null) {
 }
 
 function renderEuMarketPrices(container, asin, prices) {
-    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'NL': '🇳🇱', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
-    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'NL': 'nl', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
+    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
+    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
     let euBox = container.querySelector('#fc-eu-market-prices'); if (!euBox) return;
     const list = euBox.querySelector('.fc-eu-prices-list'); if (!list) return;
     if (!prices || prices.length === 0) { list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>'; return; }
@@ -403,7 +403,7 @@ chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListen
     chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
         action: 'fetchEuMarketPrices',
         asin: asin,
-        markets: ['DE', 'FR', 'IT', 'ES', 'NL']
+        markets: ['DE', 'FR', 'IT', 'ES']
     }, (resp) => {
         if (resp && !resp.success) {
             console.warn('EU market fiyat isteği başarısız:', resp.error);

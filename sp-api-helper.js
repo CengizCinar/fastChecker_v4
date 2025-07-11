@@ -11,7 +11,7 @@ class SPAPIHelper {
             'ES': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1RKKUPIHCS9HS', region: 'eu-west-1' },
             'FR': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A13V1IB3VIYZZH', region: 'eu-west-1' },
             'IT': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'APJ6JRA9NG5V4', region: 'eu-west-1' },
-            'NL': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1805IZSGTT6HS', region: 'eu-west-1' },
+            
             'UK': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', region: 'eu-west-1' },
             'SE': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A2NODRKZP88ZB9', region: 'eu-west-1' },
             'PL': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1C3SOZRARQ6R3', region: 'eu-west-1' },
