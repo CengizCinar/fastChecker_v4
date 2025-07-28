@@ -185,42 +185,57 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
         # 5. Offers
         logger.info("💰 Step 5: Fetching offers and pricing...")
+        buybox_price = None
+        currency_code = None
         try:
             offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
             offers = offers_response.payload.get('Offers', [])
-            filtered_offers = [o for o in offers if o.get('Quantity', 1) > 0 and o.get('IsFeatured', True)]
-            result_data['offers'] = filtered_offers
             
-            buybox_offer = next((o for o in filtered_offers if o.get('IsBuyBoxWinner')), None)
-            buybox_price = float(buybox_offer['ListingPrice']['Amount']) if buybox_offer else None
-            currency_code = buybox_offer['ListingPrice']['CurrencyCode'] if buybox_offer else None
+            processed_offers = []
+            for o in offers:
+                # FBM teklifleri için kargo ücretini fiyata ekle
+                if not o.get('IsFulfilledByAmazon', False):
+                    listing_price = o.get('ListingPrice', {}).get('Amount', 0.0)
+                    shipping_price = o.get('Shipping', {}).get('Amount', 0.0)
+                    o['ListingPrice']['Amount'] = float(listing_price) + float(shipping_price)
+                processed_offers.append(o)
+
+            # Fiyatlarına göre sırala
+            processed_offers.sort(key=lambda x: x.get('ListingPrice', {}).get('Amount', float('inf')))
+            
+            result_data['offers'] = processed_offers
+            
+            # Buy Box kazananını bul
+            buybox_offer = next((o for o in processed_offers if o.get('IsBuyBoxWinner')), None)
+            
+            if buybox_offer:
+                buybox_price = float(buybox_offer['ListingPrice']['Amount'])
+                currency_code = buybox_offer['ListingPrice']['CurrencyCode']
+                logger.info(f"✅ Buybox Winner Found: {buybox_price} {currency_code}")
+            elif processed_offers:
+                # Buy Box yoksa, en düşük fiyatlı teklifi kullan
+                first_offer = processed_offers[0]
+                buybox_price = float(first_offer['ListingPrice']['Amount'])
+                currency_code = first_offer['ListingPrice']['CurrencyCode']
+                logger.info(f"✅ No Buybox Winner. Using lowest offer: {buybox_price} {currency_code}")
+            
             result_data['buyboxPrice'] = buybox_price
             result_data['currencyCode'] = currency_code
             
-            logger.info(f"✅ Offers: {len(offers)}, Filtered: {len(filtered_offers)}")
-            logger.info(f"✅ Buybox Price: {buybox_price} {currency_code}")
-            
+            logger.info(f"✅ Offers processed: {len(processed_offers)}")
+
         except Exception as e:
-            logger.error(f"❌ Error fetching offers: {str(e)}")
+            logger.error(f"❌ Error fetching or processing offers: {str(e)}")
             logger.error(traceback.format_exc())
             result_data['offers'] = []
             result_data['buyboxPrice'] = None
             result_data['currencyCode'] = None
-            buybox_price = None
-            currency_code = None
 
         # 6. Fees
         logger.info("🧮 Step 6: Calculating fees...")
-        if buybox_price:
+        if buybox_price and currency_code:
             try:
-                fees_response = fees_api.get_product_fees_estimate([{
-                    'id_type': 'ASIN', 
-                    'id_value': asin, 
-                    'price': buybox_price, 
-                    'currency': currency_code, 
-                    'is_fba': True, 
-                    'marketplace_id': marketplace.marketplace_id
-                }])
+                fees_response = fees_api.get_product_fees_estimate([{'id_type': 'ASIN', 'id_value': asin, 'price': buybox_price, 'currency': currency_code, 'is_fba': True, 'marketplace_id': marketplace.marketplace_id}])
                 fees_result = fees_response.payload[0]
                 
                 if fees_result.get('Status') == 'Success':
@@ -240,7 +255,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 logger.error(traceback.format_exc())
                 result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
         else:
-            logger.info("ℹ️ No buybox price available, skipping fees calculation")
+            logger.info("ℹ️ No price available for fee calculation, skipping.")
             result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
 
         logger.info("✅ Product details fetched successfully")
