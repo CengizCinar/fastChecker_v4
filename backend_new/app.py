@@ -210,9 +210,23 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             # Dimensions
             package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
             if package_dims and 'value' in package_dims.get('length', {}):
-                length = package_dims['length']['value'] * 2.54
-                width = package_dims['width']['value'] * 2.54
-                height = package_dims['height']['value'] * 2.54
+                # Check if dimensions are in inches and convert to cm
+                length_unit = package_dims['length'].get('unit', '').lower()
+                width_unit = package_dims['width'].get('unit', '').lower()
+                height_unit = package_dims['height'].get('unit', '').lower()
+                
+                length = package_dims['length']['value']
+                width = package_dims['width']['value']
+                height = package_dims['height']['value']
+                
+                # Convert to cm if in inches
+                if length_unit in ['inches', 'inch']:
+                    length *= 2.54
+                if width_unit in ['inches', 'inch']:
+                    width *= 2.54
+                if height_unit in ['inches', 'inch']:
+                    height *= 2.54
+                
                 result_data['dimensions'] = f"{length:.1f} x {width:.1f} x {height:.1f} cm"
                 logger.info(f"✅ Dimensions: {result_data['dimensions']}")
             else:
@@ -223,15 +237,26 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             package_weight = attributes_data.get('item_package_weight', [{}])[0]
             if package_weight and 'value' in package_weight:
                 weight_value = package_weight['value']
-                weight_unit = package_weight.get('unit', '')
-                if weight_unit.lower() in ['pounds', 'pound']:
-                    weight_kg = weight_value * 0.453592
-                    result_data['packageWeight'] = f"{(weight_kg * 1000):.0f} gr"
+                weight_unit = package_weight.get('unit', '').lower()
+                
+                if weight_unit in ['pounds', 'pound']:
+                    # Convert pounds to grams
+                    weight_gr = weight_value * 453.592
+                    result_data['packageWeight'] = f"{weight_gr:.0f} gr"
+                elif weight_unit in ['kilograms', 'kg']:
+                    # Convert kg to grams
+                    weight_gr = weight_value * 1000
+                    result_data['packageWeight'] = f"{weight_gr:.0f} gr"
+                elif weight_unit in ['grams', 'g']:
+                    # Already in grams
+                    result_data['packageWeight'] = f"{weight_value:.0f} gr"
                 else:
+                    # Assume it's already in grams if no unit specified
                     try:
-                        result_data['packageWeight'] = f"{float(weight_value) * 1000:.0f} gr"
+                        result_data['packageWeight'] = f"{float(weight_value):.0f} gr"
                     except (ValueError, TypeError):
                         result_data['packageWeight'] = "N/A"
+                
                 logger.info(f"✅ Weight: {result_data['packageWeight']}")
             else:
                 result_data['packageWeight'] = "N/A"
