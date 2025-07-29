@@ -3,12 +3,11 @@ import json
 import logging
 import traceback
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
-from sp_api.base import SellingApiException
-from sp_api.base.marketplaces import Marketplaces
 import requests
+from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
+from sp_api.base import Marketplaces, SellingApiException
 
 # --- Currency API Configuration ---
 CURRENCY_API_KEY = os.getenv('CURRENCY_API_KEY')
@@ -206,16 +205,65 @@ def get_credentials_for_marketplace(marketplace_str):
     else:
         return None, None, f"Unknown region: {region}"
 
+# --- Exchange Rate Conversion ---
+EXCHANGE_RATE_API_KEY = os.environ.get('EXCHANGE_RATE_API_KEY')
+exchange_rate_cache = {}
+cache_expiry = timedelta(hours=4) # Cache rates for 4 hours
+
+def get_exchange_rates(base_currency='USD'):
+    """Fetches exchange rates from the API and caches them."""
+    global exchange_rate_cache
+    now = datetime.now()
+
+    if base_currency in exchange_rate_cache:
+        cached_data = exchange_rate_cache[base_currency]
+        if now < cached_data['expiry']:
+            logger.info(f"Using cached exchange rates for {base_currency}")
+            return cached_data['rates']
+
+    if not EXCHANGE_RATE_API_KEY:
+        logger.error("EXCHANGE_RATE_API_KEY environment variable not set.")
+        return None
+
+    try:
+        logger.info(f"Fetching new exchange rates for {base_currency} from API...")
+        url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/{base_currency}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status() # Raise an exception for bad status codes
+        data = response.json()
+        if data.get('result') == 'success':
+            rates = data['conversion_rates']
+            exchange_rate_cache[base_currency] = {
+                'rates': rates,
+                'expiry': now + cache_expiry
+            }
+            logger.info("Successfully fetched and cached new exchange rates.")
+            return rates
+        else:
+            logger.error(f"Exchange rate API returned an error: {data.get('error-type')}")
+            return None
+    except requests.RequestException as e:
+        logger.error(f"Error fetching exchange rates: {e}")
+        return None
+
+def convert_currency(amount, from_currency, to_currency, rates):
+    """Converts an amount from one currency to another using the provided rates."""
+    if not rates or from_currency not in rates or to_currency not in rates:
+        return None
+    # Conversion formula: (amount / from_rate) * to_rate
+    # Since our base is USD, from_rate is the rate of the currency relative to USD.
+    amount_in_usd = amount / rates[from_currency]
+    return amount_in_usd * rates[to_currency]
+
 # --- Main Function to Get Product Details ---
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
     logger.info(f"=== PRODUCT DETAILS REQUEST ===")
     logger.info(f"ASIN: {asin}, Marketplace: {marketplace_str}")
     
-    # Get credentials for the marketplace
-    credentials, seller_id, error = get_credentials_for_marketplace(marketplace_str)
-    if error:
-        logger.error(f"❌ Credential error: {error}")
-        return {"error": error}
+    if not credentials or not SELLER_ID:
+        error_msg = "Server is not configured. Missing credentials or Seller ID."
+        logger.error(error_msg)
+        return {"error": error_msg}
 
     try:
         marketplace = getattr(Marketplaces, marketplace_str.upper())
@@ -227,7 +275,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
     try:
         logger.info("Initializing Amazon SP APIs...")
-        # Initialize APIs with the credentials loaded from environment variables
         catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
         restrictions_api = ListingsRestrictions(credentials=credentials, marketplace=marketplace)
         products_api = Products(credentials=credentials, marketplace=marketplace)
@@ -235,232 +282,79 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         logger.info("✅ All APIs initialized successfully")
 
         result_data = {}
+        buybox_price = None
+        currency_code = None
 
         # 1. Catalog Info (Attributes)
         logger.info("🔍 Step 1: Fetching catalog attributes...")
-        try:
-            catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes'])
-            logger.info("✅ Catalog attributes fetched successfully")
-            
-            summary = catalog_response_attributes.payload.get('summaries', [{}])[0]
-            result_data['asin'] = asin
-            result_data['title'] = summary.get('itemName', 'N/A')
-            result_data['brand'] = summary.get('brandName', 'N/A')
-            result_data['ean'] = next((i['identifier'] for i in catalog_response_attributes.payload.get('identifiers', [{}])[0].get('identifiers', []) if i['identifierType'] == 'EAN'), 'N/A')
-            
-            logger.info(f"Product: {result_data['title'][:50]}...")
-            logger.info(f"Brand: {result_data['brand']}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error in catalog attributes: {str(e)}")
-            logger.error(traceback.format_exc())
-            raise
+        catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'attributes'])
+        summary = catalog_response_attributes.payload.get('summaries', [{}])[0]
+        result_data['asin'] = asin
+        result_data['title'] = summary.get('itemName', 'N/A')
+        result_data['brand'] = summary.get('brand', 'N/A')
 
-        # 2. Image Info
-        logger.info("🖼️ Step 2: Fetching product images...")
-        try:
-            catalog_response_images = catalog_api.get_catalog_item(asin, includedData=['images'])
-            result_data['imageUrl'] = catalog_response_images.payload.get('images', [{}])[0].get('images', [{}])[0].get('link')
-            logger.info(f"✅ Image URL: {result_data['imageUrl'][:50] if result_data['imageUrl'] else 'None'}...")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not fetch images: {str(e)}")
-            result_data['imageUrl'] = None
+        # 2. Offers and Pricing
+        logger.info("💰 Step 2: Fetching offers and pricing...")
+        offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
+        offers = offers_response.payload.get('Offers', [])
+        buybox_offer = next((o for o in offers if o.get('IsBuyBoxWinner')), None)
+        if buybox_offer:
+            buybox_price = float(buybox_offer['ListingPrice']['Amount'])
+            currency_code = buybox_offer['ListingPrice']['CurrencyCode']
+        result_data['buyboxPrice'] = buybox_price
+        result_data['currencyCode'] = currency_code
 
-        # 3. Dimensions and Weight
-        logger.info("📏 Step 3: Processing dimensions and weight...")
-        try:
-            attributes_data = catalog_response_attributes.payload.get('attributes', {})
-            
-            # Dimensions
-            package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
-            if package_dims and 'value' in package_dims.get('length', {}):
-                # Check if dimensions are in inches and convert to cm
-                length_unit = package_dims['length'].get('unit', '').lower()
-                width_unit = package_dims['width'].get('unit', '').lower()
-                height_unit = package_dims['height'].get('unit', '').lower()
-                
-                length = package_dims['length']['value']
-                width = package_dims['width']['value']
-                height = package_dims['height']['value']
-                
-                # Convert to cm if in inches
-                if length_unit in ['inches', 'inch']:
-                    length *= 2.54
-                if width_unit in ['inches', 'inch']:
-                    width *= 2.54
-                if height_unit in ['inches', 'inch']:
-                    height *= 2.54
-                
-                result_data['dimensions'] = f"{length:.1f} x {width:.1f} x {height:.1f} cm"
-                logger.info(f"✅ Dimensions: {result_data['dimensions']}")
+        # 3. Fees Calculation
+        logger.info("🧮 Step 3: Calculating fees...")
+        if buybox_price and currency_code:
+            fees_request_payload = [{
+                'IdType': 'ASIN',
+                'IdValue': asin,
+                'PriceToEstimateFees': {
+                    'ListingPrice': {
+                        'CurrencyCode': currency_code,
+                        'Amount': buybox_price
+                    }
+                },
+                'MarketplaceId': marketplace.marketplace_id,
+                'IsFulfillmentByAmazon': True
+            }]
+            fees_response = fees_api.get_my_fees_estimate_for_asin(asin, buybox_price, currency_code, True)
+            fees_data = fees_response.payload
+            if fees_data and fees_data.get('FeesEstimateResult'):
+                fees_estimate = fees_data['FeesEstimateResult']['FeesEstimate']
+                result_data['referralFee'] = fees_estimate.get('ReferralFee', {}).get('Amount', 0.0)
+                result_data['fbaFee'] = fees_estimate.get('FbaFees', {}).get('Amount', 0.0)
             else:
-                result_data['dimensions'] = "N/A"
-                logger.info("ℹ️ No dimensions available")
+                result_data['referralFee'] = 0.0
+                result_data['fbaFee'] = 0.0
+        else:
+            result_data['referralFee'] = 0.0
+            result_data['fbaFee'] = 0.0
 
-            # Weight
-            package_weight = attributes_data.get('item_package_weight', [{}])[0]
-            if package_weight and 'value' in package_weight:
-                weight_value = package_weight['value']
-                weight_unit = package_weight.get('unit', '').lower()
-                
-                if weight_unit in ['pounds', 'pound']:
-                    # Convert pounds to grams
-                    weight_gr = weight_value * 453.592
-                    result_data['packageWeight'] = f"{weight_gr:.0f} gr"
-                elif weight_unit in ['kilograms', 'kg']:
-                    # Convert kg to grams
-                    weight_gr = weight_value * 1000
-                    result_data['packageWeight'] = f"{weight_gr:.0f} gr"
-                elif weight_unit in ['grams', 'g']:
-                    # Already in grams
-                    result_data['packageWeight'] = f"{weight_value:.0f} gr"
-                else:
-                    # Assume it's already in grams if no unit specified
-                    try:
-                        result_data['packageWeight'] = f"{float(weight_value):.0f} gr"
-                    except (ValueError, TypeError):
-                        result_data['packageWeight'] = "N/A"
-                
-                logger.info(f"✅ Weight: {result_data['packageWeight']}")
-            else:
-                result_data['packageWeight'] = "N/A"
-                logger.info("ℹ️ No weight available")
-                
-        except Exception as e:
-            logger.error(f"❌ Error processing dimensions/weight: {str(e)}")
-            result_data['dimensions'] = "N/A"
-            result_data['packageWeight'] = "N/A"
+        # 4. Currency Conversion
+        logger.info("💱 Step 4: Converting currencies...")
+        rates = get_exchange_rates('USD')
+        if rates and currency_code != 'USD':
+            result_data['buyboxPriceUSD'] = convert_currency(result_data['buyboxPrice'], currency_code, 'USD', rates)
+            result_data['referralFeeUSD'] = convert_currency(result_data['referralFee'], currency_code, 'USD', rates)
+            result_data['fbaFeeUSD'] = convert_currency(result_data['fbaFee'], currency_code, 'USD', rates)
+        else:
+            result_data['buyboxPriceUSD'] = result_data['buyboxPrice']
+            result_data['referralFeeUSD'] = result_data['referralFee']
+            result_data['fbaFeeUSD'] = result_data['fbaFee']
 
-        # 4. Restrictions
-        logger.info("🚫 Step 4: Checking selling restrictions...")
-        try:
-            restrictions_response = restrictions_api.get_listings_restrictions(asin=asin, sellerId=seller_id, conditionType='new_new')
-            restrictions = restrictions_response.payload.get('restrictions', [])
-            result_data['isSellable'] = not bool(restrictions)
-            result_data['restrictionReasons'] = [reason.get('message') for r in restrictions for reason in r.get('reasons', [])]
-            logger.info(f"✅ Sellable: {result_data['isSellable']}, Restrictions: {len(restrictions)}")
-        except Exception as e:
-            logger.error(f"❌ Error checking restrictions: {str(e)}")
-            logger.error(traceback.format_exc())
-            result_data['isSellable'] = None
-            result_data['restrictionReasons'] = []
-
-        # 5. Offers
-        logger.info("💰 Step 5: Fetching offers and pricing...")
-        buybox_price = None
-        currency_code = None
-        try:
-            offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
-            offers = offers_response.payload.get('Offers', [])
-            
-            processed_offers = []
-            for o in offers:
-                # FBM teklifleri için kargo ücretini fiyata ekle
-                if not o.get('IsFulfilledByAmazon', False):
-                    listing_price = o.get('ListingPrice', {}).get('Amount', 0.0)
-                    shipping_price = o.get('Shipping', {}).get('Amount', 0.0)
-                    o['ListingPrice']['Amount'] = float(listing_price) + float(shipping_price)
-                processed_offers.append(o)
-
-            # Fiyatlarına göre sırala
-            processed_offers.sort(key=lambda x: x.get('ListingPrice', {}).get('Amount', float('inf')))
-            
-            result_data['offers'] = processed_offers
-            
-            # Buy Box kazananını bul
-            buybox_offer = next((o for o in processed_offers if o.get('IsBuyBoxWinner')), None)
-            
-            if buybox_offer:
-                buybox_price = float(buybox_offer['ListingPrice']['Amount'])
-                currency_code = buybox_offer['ListingPrice']['CurrencyCode']
-                logger.info(f"✅ Buybox Winner Found: {buybox_price} {currency_code}")
-            elif processed_offers:
-                # Buy Box yoksa, en düşük fiyatlı teklifi kullan
-                first_offer = processed_offers[0]
-                buybox_price = float(first_offer['ListingPrice']['Amount'])
-                currency_code = first_offer['ListingPrice']['CurrencyCode']
-                logger.info(f"✅ No Buybox Winner. Using lowest offer: {buybox_price} {currency_code}")
-            
-            result_data['buyboxPrice'] = buybox_price
-            result_data['currencyCode'] = currency_code
-            
-            logger.info(f"✅ Offers processed: {len(processed_offers)}")
-
-        except Exception as e:
-            logger.error(f"❌ Error fetching offers: {str(e)}")
-            logger.error(traceback.format_exc())
-            result_data['offers'] = []
-            result_data['buyboxPrice'] = None
-            result_data['currencyCode'] = None
-
-        # 6. Fees
-        logger.info("💸 Step 6: Calculating fees...")
-        try:
-            if buybox_price and currency_code:
-                logger.info(f"Calculating fees for price: {buybox_price} {currency_code}")
-                fees_response = fees_api.get_product_fees_estimate(
-                    asin=asin,
-                    price=float(buybox_price),
-                    currency=currency_code,
-                    marketplaceId=marketplace.marketplace_id,
-                    isAmazonFulfilled=True
-                )
-                
-                logger.info(f"Fees API response: {fees_response.payload}")
-                
-                fees_data = fees_response.payload.get('FeesEstimate', {})
-                fee_details = fees_data.get('FeeDetailList', [])
-                
-                logger.info(f"Fee details found: {len(fee_details)}")
-                for fee in fee_details:
-                    logger.info(f"Fee: {fee}")
-                
-                referral_fee = 0
-                fba_fee = 0
-                
-                for fee in fee_details:
-                    fee_type = fee.get('FeeType', '')
-                    fee_amount = fee.get('FinalFee', {}).get('Amount', 0)
-                    
-                    logger.info(f"Processing fee type: {fee_type}, amount: {fee_amount}")
-                    
-                    if fee_type == 'ReferralFee':
-                        referral_fee = fee_amount
-                    elif fee_type == 'FBAFees':
-                        fba_fee = fee_amount
-                
-                result_data['referralFee'] = referral_fee
-                result_data['fbaFee'] = fba_fee
-                logger.info(f"✅ Fees calculated - Referral: {referral_fee}, FBA: {fba_fee}")
-            else:
-                result_data['referralFee'] = 0
-                result_data['fbaFee'] = 0
-                logger.warning("⚠️ Could not calculate fees - no buybox price")
-                
-        except Exception as e:
-            logger.error(f"❌ Error calculating fees: {str(e)}")
-            logger.error(traceback.format_exc())
-            result_data['referralFee'] = 0
-            result_data['fbaFee'] = 0
-
-        # 7. BSR Data (if available)
-        logger.info("📊 Step 7: Processing BSR data...")
-        try:
-            # This would be populated from external BSR data source
-            # For now, we'll leave it empty
-            result_data['bsr_data'] = {}
-            logger.info("ℹ️ BSR data not implemented yet")
-        except Exception as e:
-            logger.warning(f"⚠️ BSR data processing error: {str(e)}")
-            result_data['bsr_data'] = {}
-
-        logger.info("✅ Product details processing completed successfully")
+        logger.info("✅ Product details fetched and processed successfully")
         return result_data
 
+    except SellingApiException as e:
+        error_message = str(e.payload if hasattr(e, 'payload') and e.payload else e)
+        logger.error(f"❌ Amazon SP API Error: {error_message}")
+        return {"error": f"API Error: {error_message}"}
     except Exception as e:
-        logger.error(f"❌ FATAL ERROR in get_full_product_details_as_json: {str(e)}")
+        logger.error(f"❌ Unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
-        return {"error": f"Internal server error: {str(e)}"}
+        return {"error": f"An unexpected server error occurred: {str(e)}"}
 
 # --- API Endpoints ---
 @app.route('/')
