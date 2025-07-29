@@ -47,15 +47,17 @@ except Exception as e:
 # --- Load Credentials from Environment Variables ---
 logger.info("Loading credentials from environment variables...")
 try:
+    # North America (default) credentials
     credentials_na = {
-        "refresh_token": os.environ['NA_REFRESH_TOKEN'],
-        "lwa_app_id": os.environ['NA_LWA_APP_ID'],
-        "lwa_client_secret": os.environ['NA_LWA_CLIENT_SECRET'],
+        "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
+        "lwa_app_id": os.environ['AMAZON_LWA_APP_ID'],
+        "lwa_client_secret": os.environ['AMAZON_LWA_CLIENT_SECRET'],
         "aws_access_key": os.environ['AWS_ACCESS_KEY_ID'],
         "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
     }
-    seller_id_na = os.environ['NA_SELLER_ID']
+    seller_id_na = os.environ['AMAZON_SELLER_ID']
 
+    # European Union credentials
     credentials_eu = {
         "refresh_token": os.environ['EU_REFRESH_TOKEN'],
         "lwa_app_id": os.environ['EU_LWA_APP_ID'],
@@ -65,6 +67,7 @@ try:
     }
     seller_id_eu = os.environ['EU_SELLER_ID']
     logger.info("✅ All NA and EU credentials loaded successfully")
+
 except KeyError as e:
     logger.error(f"❌ FATAL ERROR: Environment variable not found - {e}")
     credentials_na = None
