@@ -12,9 +12,11 @@ class SPAPIHelper {
             'FR': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A13V1IB3VIYZZH', region: 'eu-west-1' },
             'IT': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'APJ6JRA9NG5V4', region: 'eu-west-1' },
             'NL': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1805IZSGTT6HS', region: 'eu-west-1' },
-            'UK': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', region: 'eu-west-1' },
+            'GB': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', region: 'eu-west-1' },
+            'UK': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1F83G8C2ARO7P', region: 'eu-west-1' }, // Alias for GB
             'SE': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A2NODRKZP88ZB9', region: 'eu-west-1' },
             'PL': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A1C3SOZRARQ6R3', region: 'eu-west-1' },
+            'BE': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'AMEN7PMS3EDWL', region: 'eu-west-1' },
             'EG': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'ARBP9OOSHTCHU', region: 'eu-west-1' },
             'TR': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A33AVAJ2PDY3EV', region: 'eu-west-1' },
             'SA': { endpoint: 'https://sellingpartnerapi-eu.amazon.com', marketplaceId: 'A17E79C6D8DWNP', region: 'eu-west-1' },

@@ -4,6 +4,62 @@ function getAsinFromUrl() {
     return match ? match[1] : null;
 }
 
+function detectMarketplace() {
+    const hostname = window.location.hostname;
+    
+    // Amazon domain to marketplace mapping
+    const domainToMarketplace = {
+        'www.amazon.com': 'US',
+        'www.amazon.ca': 'CA',
+        'www.amazon.com.mx': 'MX',
+        'www.amazon.de': 'DE',
+        'www.amazon.co.uk': 'GB',
+        'www.amazon.fr': 'FR',
+        'www.amazon.it': 'IT',
+        'www.amazon.es': 'ES',
+        'www.amazon.nl': 'NL',
+        'www.amazon.se': 'SE',
+        'www.amazon.pl': 'PL',
+        'www.amazon.com.be': 'BE'
+    };
+    
+    // Check for exact match first
+    if (domainToMarketplace[hostname]) {
+        return domainToMarketplace[hostname];
+    }
+    
+    // Check for subdomain patterns
+    if (hostname.includes('amazon.com')) {
+        return 'US';
+    } else if (hostname.includes('amazon.ca')) {
+        return 'CA';
+    } else if (hostname.includes('amazon.com.mx')) {
+        return 'MX';
+    } else if (hostname.includes('amazon.de')) {
+        return 'DE';
+    } else if (hostname.includes('amazon.co.uk')) {
+        return 'GB';
+    } else if (hostname.includes('amazon.fr')) {
+        return 'FR';
+    } else if (hostname.includes('amazon.it')) {
+        return 'IT';
+    } else if (hostname.includes('amazon.es')) {
+        return 'ES';
+    } else if (hostname.includes('amazon.nl')) {
+        return 'NL';
+    } else if (hostname.includes('amazon.se')) {
+        return 'SE';
+    } else if (hostname.includes('amazon.pl')) {
+        return 'PL';
+    } else if (hostname.includes('amazon.com.be')) {
+        return 'BE';
+    }
+    
+    // Default to US if no match found
+    console.warn('FastChecker: Could not detect marketplace from domain, defaulting to US');
+    return 'US';
+}
+
 function createUIContainer() {
     const existingUI = document.getElementById('fastchecker-product-ui');
     if (existingUI) {
@@ -314,10 +370,15 @@ function updateUI(container, data, error = null) {
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
+    
+    const marketplace = detectMarketplace();
+    console.log(`FastChecker: Detected marketplace: ${marketplace} from domain: ${window.location.hostname}`);
+    
     const container = createUIContainer();
     if (!container) return;
-    // Backend'den veri çek
-    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=US`)
+    
+    // Backend'den veri çek - marketplace parametresi ile
+    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${marketplace}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) {

@@ -30,6 +30,25 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# --- Marketplace Configuration ---
+MARKETPLACE_REGIONS = {
+    # North America (NA) - Same credentials, different domains
+    'US': {'region': 'NA', 'marketplace_id': 'ATVPDKIKX0DER'},
+    'CA': {'region': 'NA', 'marketplace_id': 'A2EUQ1WTGCTBG2'},
+    'MX': {'region': 'NA', 'marketplace_id': 'A1AM78C64UM0Y8'},
+    
+    # Europe (EU) - Different credentials
+    'DE': {'region': 'EU', 'marketplace_id': 'A1PA6795UKMFR9'},
+    'GB': {'region': 'EU', 'marketplace_id': 'A1F83G8C2ARO7P'},
+    'FR': {'region': 'EU', 'marketplace_id': 'A13V1IB3VIYZZH'},
+    'IT': {'region': 'EU', 'marketplace_id': 'APJ6JRA9NG5V4'},
+    'ES': {'region': 'EU', 'marketplace_id': 'A1RKKUPIHCS9HS'},
+    'NL': {'region': 'EU', 'marketplace_id': 'A1805IZSGTT6HS'},
+    'SE': {'region': 'EU', 'marketplace_id': 'A2NODRKZP88ZB9'},
+    'PL': {'region': 'EU', 'marketplace_id': 'A1C3SOZRARQ6R3'},
+    'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
+}
+
 # --- Load BSR Data with Logging ---
 logger.info("=== APPLICATION STARTUP ===")
 logger.info("Loading BSR tables from SellerAmp...")
@@ -47,38 +66,92 @@ except Exception as e:
 # --- Load Credentials from Environment Variables ---
 logger.info("Loading credentials from environment variables...")
 try:
-    credentials = {
+    # AWS credentials are the same for both regions
+    aws_access_key = os.environ['AWS_ACCESS_KEY_ID']
+    aws_secret_key = os.environ['AWS_SECRET_ACCESS_KEY']
+    
+    # NA Region credentials (US, CA, MX)
+    na_credentials = {
         "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
         "lwa_app_id": os.environ['AMAZON_LWA_APP_ID'],
         "lwa_client_secret": os.environ['AMAZON_LWA_CLIENT_SECRET'],
-        "aws_access_key": os.environ['AWS_ACCESS_KEY_ID'],
-        "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
+        "aws_access_key": aws_access_key,
+        "aws_secret_key": aws_secret_key
     }
-    SELLER_ID = os.environ['AMAZON_SELLER_ID']
-    logger.info("✅ All credentials loaded successfully")
-    logger.info(f"Seller ID: {SELLER_ID[:10]}...")  # Only show first 10 chars for security
-    logger.info(f"LWA App ID: {credentials['lwa_app_id'][:10]}...")
+    na_seller_id = os.environ['AMAZON_SELLER_ID']
+    
+    # EU Region credentials (if available) - using same AWS keys
+    eu_credentials = None
+    eu_seller_id = None
+    
+    # Check if EU SP-API credentials are available
+    if all(key in os.environ for key in ['EU_REFRESH_TOKEN', 'EU_LWA_APP_ID', 'EU_LWA_CLIENT_SECRET', 'EU_SELLER_ID']):
+        eu_credentials = {
+            "refresh_token": os.environ['EU_REFRESH_TOKEN'],
+            "lwa_app_id": os.environ['EU_LWA_APP_ID'],
+            "lwa_client_secret": os.environ['EU_LWA_CLIENT_SECRET'],
+            "aws_access_key": aws_access_key,  # Same AWS keys
+            "aws_secret_key": aws_secret_key   # Same AWS keys
+        }
+        eu_seller_id = os.environ['EU_SELLER_ID']
+        logger.info("✅ Both NA and EU credentials loaded successfully (shared AWS keys)")
+    else:
+        logger.info("✅ NA credentials loaded successfully, EU credentials not configured")
+    
+    logger.info(f"NA Seller ID: {na_seller_id[:10]}...")  # Only show first 10 chars for security
+    logger.info(f"NA LWA App ID: {na_credentials['lwa_app_id'][:10]}...")
+    if eu_seller_id:
+        logger.info(f"EU Seller ID: {eu_seller_id[:10]}...")
+        logger.info(f"EU LWA App ID: {eu_credentials['lwa_app_id'][:10]}...")
+        
 except KeyError as e:
     logger.error(f"❌ FATAL ERROR: Environment variable not found - {e}")
     logger.error("Required environment variables:")
-    logger.error("- AMAZON_REFRESH_TOKEN")
-    logger.error("- AMAZON_LWA_APP_ID") 
-    logger.error("- AMAZON_LWA_CLIENT_SECRET")
-    logger.error("- AWS_ACCESS_KEY_ID")
-    logger.error("- AWS_SECRET_ACCESS_KEY")
-    logger.error("- AMAZON_SELLER_ID")
-    credentials = None
-    SELLER_ID = None
+    logger.error("- AWS_ACCESS_KEY_ID (shared for both regions)")
+    logger.error("- AWS_SECRET_ACCESS_KEY (shared for both regions)")
+    logger.error("- AMAZON_REFRESH_TOKEN (NA region)")
+    logger.error("- AMAZON_LWA_APP_ID (NA region)")
+    logger.error("- AMAZON_LWA_CLIENT_SECRET (NA region)")
+    logger.error("- AMAZON_SELLER_ID (NA region)")
+    logger.error("Optional environment variables for EU region:")
+    logger.error("- EU_REFRESH_TOKEN")
+    logger.error("- EU_LWA_APP_ID")
+    logger.error("- EU_LWA_CLIENT_SECRET")
+    logger.error("- EU_SELLER_ID")
+    na_credentials = None
+    eu_credentials = None
+    na_seller_id = None
+    eu_seller_id = None
+
+def get_credentials_for_marketplace(marketplace_str):
+    """Get the appropriate credentials and seller ID for the given marketplace"""
+    marketplace_info = MARKETPLACE_REGIONS.get(marketplace_str.upper())
+    if not marketplace_info:
+        return None, None, f"Unsupported marketplace: {marketplace_str}"
+    
+    region = marketplace_info['region']
+    
+    if region == 'NA':
+        if not na_credentials or not na_seller_id:
+            return None, None, "NA credentials not configured"
+        return na_credentials, na_seller_id, None
+    elif region == 'EU':
+        if not eu_credentials or not eu_seller_id:
+            return None, None, "EU credentials not configured"
+        return eu_credentials, eu_seller_id, None
+    else:
+        return None, None, f"Unknown region: {region}"
 
 # --- Main Function to Get Product Details ---
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
     logger.info(f"=== PRODUCT DETAILS REQUEST ===")
     logger.info(f"ASIN: {asin}, Marketplace: {marketplace_str}")
     
-    if not credentials or not SELLER_ID:
-        error_msg = "Server is not configured. Missing credentials or Seller ID."
-        logger.error(error_msg)
-        return {"error": error_msg}
+    # Get credentials for the marketplace
+    credentials, seller_id, error = get_credentials_for_marketplace(marketplace_str)
+    if error:
+        logger.error(f"❌ Credential error: {error}")
+        return {"error": error}
 
     try:
         marketplace = getattr(Marketplaces, marketplace_str.upper())
@@ -172,7 +245,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         # 4. Restrictions
         logger.info("🚫 Step 4: Checking selling restrictions...")
         try:
-            restrictions_response = restrictions_api.get_listings_restrictions(asin=asin, sellerId=SELLER_ID, conditionType='new_new')
+            restrictions_response = restrictions_api.get_listings_restrictions(asin=asin, sellerId=seller_id, conditionType='new_new')
             restrictions = restrictions_response.payload.get('restrictions', [])
             result_data['isSellable'] = not bool(restrictions)
             result_data['restrictionReasons'] = [reason.get('message') for r in restrictions for reason in r.get('reasons', [])]
@@ -279,20 +352,27 @@ def health_check():
         "status": "OK", 
         "message": "FastChecker Backend is running!",
         "timestamp": datetime.now().isoformat(),
-        "credentials_loaded": bool(credentials),
-        "bsr_tables_loaded": bool(BSR_TABLES.get('US')) and bool(BSR_TABLES.get('CA'))
+        "credentials_loaded": bool(na_credentials),
+        "eu_credentials_loaded": bool(eu_credentials),
+        "bsr_tables_loaded": bool(BSR_TABLES.get('US')) and bool(BSR_TABLES.get('CA')),
+        "supported_marketplaces": list(MARKETPLACE_REGIONS.keys())
     })
 
 @app.route('/get_product_details/<string:asin>', methods=['GET'])
 def api_get_product_details(asin):
     logger.info(f"API request received for ASIN: {asin}")
     
-    if not credentials:
+    if not na_credentials and not eu_credentials:
         logger.error("Server not configured - missing credentials")
         return jsonify({"error": "Server is not configured correctly. Please check logs."}), 503
 
     marketplace = request.args.get('marketplace', 'US')
     logger.info(f"Marketplace: {marketplace}")
+    
+    # Validate marketplace
+    if marketplace.upper() not in MARKETPLACE_REGIONS:
+        supported = ', '.join(MARKETPLACE_REGIONS.keys())
+        return jsonify({"error": f"Unsupported marketplace: {marketplace}. Supported: {supported}"}), 400
     
     try:
         data = get_full_product_details_as_json(asin, marketplace)
@@ -301,7 +381,9 @@ def api_get_product_details(asin):
             logger.error(f"API returning error: {data['error']}")
             return jsonify(data), 500
         
-        data['bsr_data'] = BSR_TABLES.get(marketplace.upper())
+        # Add BSR data if available for the marketplace
+        bsr_data = BSR_TABLES.get(marketplace.upper(), {})
+        data['bsr_data'] = bsr_data
         logger.info(f"✅ API request completed successfully for ASIN: {asin}")
         return jsonify(data)
         
