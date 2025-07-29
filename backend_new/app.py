@@ -210,8 +210,8 @@ EXCHANGE_RATE_API_KEY = os.environ.get('EXCHANGE_RATE_API_KEY')
 exchange_rate_cache = {}
 cache_expiry = timedelta(hours=4) # Cache rates for 4 hours
 
-def get_exchange_rates(base_currency='USD'):
-    """Fetches exchange rates from the API and caches them."""
+def get_exchange_rates(base_currency):
+    """Fetches exchange rates for a given base currency and caches them."""
     global exchange_rate_cache
     now = datetime.now()
 
@@ -229,7 +229,7 @@ def get_exchange_rates(base_currency='USD'):
         logger.info(f"Fetching new exchange rates for {base_currency} from API...")
         url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/{base_currency}"
         response = requests.get(url, timeout=10)
-        response.raise_for_status() # Raise an exception for bad status codes
+        response.raise_for_status()
         data = response.json()
         if data.get('result') == 'success':
             rates = data['conversion_rates']
@@ -237,7 +237,7 @@ def get_exchange_rates(base_currency='USD'):
                 'rates': rates,
                 'expiry': now + cache_expiry
             }
-            logger.info("Successfully fetched and cached new exchange rates.")
+            logger.info(f"Successfully fetched and cached new exchange rates for {base_currency}.")
             return rates
         else:
             logger.error(f"Exchange rate API returned an error: {data.get('error-type')}")
@@ -246,14 +246,7 @@ def get_exchange_rates(base_currency='USD'):
         logger.error(f"Error fetching exchange rates: {e}")
         return None
 
-def convert_currency(amount, from_currency, to_currency, rates):
-    """Converts an amount from one currency to another using the provided rates."""
-    if not rates or from_currency not in rates or to_currency not in rates:
-        return None
-    # Conversion formula: (amount / from_rate) * to_rate
-    # Since our base is USD, from_rate is the rate of the currency relative to USD.
-    amount_in_usd = amount / rates[from_currency]
-    return amount_in_usd * rates[to_currency]
+
 
 # --- Main Function to Get Product Details ---
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
@@ -333,16 +326,24 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             result_data['fbaFee'] = 0.0
 
         # 4. Currency Conversion
-        logger.info("💱 Step 4: Converting currencies...")
-        rates = get_exchange_rates('USD')
-        if rates and currency_code != 'USD':
-            result_data['buyboxPriceUSD'] = convert_currency(result_data['buyboxPrice'], currency_code, 'USD', rates)
-            result_data['referralFeeUSD'] = convert_currency(result_data['referralFee'], currency_code, 'USD', rates)
-            result_data['fbaFeeUSD'] = convert_currency(result_data['fbaFee'], currency_code, 'USD', rates)
-        else:
-            result_data['buyboxPriceUSD'] = result_data['buyboxPrice']
-            result_data['referralFeeUSD'] = result_data['referralFee']
-            result_data['fbaFeeUSD'] = result_data['fbaFee']
+        logger.info("💱 Step 4: Converting currencies to USD...")
+        result_data['buyboxPriceUSD'] = result_data['buyboxPrice']
+        result_data['referralFeeUSD'] = result_data['referralFee']
+        result_data['fbaFeeUSD'] = result_data['fbaFee']
+
+        if currency_code and currency_code != 'USD':
+            rates = get_exchange_rates(currency_code)
+            if rates and 'USD' in rates:
+                usd_rate = rates['USD']
+                logger.info(f"Conversion rate from {currency_code} to USD: {usd_rate}")
+                if result_data['buyboxPrice'] is not None:
+                    result_data['buyboxPriceUSD'] = result_data['buyboxPrice'] * usd_rate
+                if result_data['referralFee'] is not None:
+                    result_data['referralFeeUSD'] = result_data['referralFee'] * usd_rate
+                if result_data['fbaFee'] is not None:
+                    result_data['fbaFeeUSD'] = result_data['fbaFee'] * usd_rate
+            else:
+                logger.error(f"Could not get USD conversion rate for {currency_code}")
 
         logger.info("✅ Product details fetched and processed successfully")
         return result_data
