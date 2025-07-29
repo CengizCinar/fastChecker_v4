@@ -171,10 +171,17 @@ function saveShippingSettings() {
 function toggleView(container) {
     const mainView = container.querySelector('#fc-main-view');
     const settingsView = container.querySelector('#fc-settings-view');
+    
+    console.log('FastChecker: toggleView called');
+    console.log('FastChecker: mainView display:', mainView.style.display);
+    console.log('FastChecker: settingsView display:', settingsView.style.display);
+    
     if (mainView.style.display === 'none') {
+        console.log('FastChecker: Switching to main view');
         mainView.style.display = 'block';
         settingsView.style.display = 'none';
     } else {
+        console.log('FastChecker: Switching to settings view');
         mainView.style.display = 'none';
         settingsView.style.display = 'block';
         renderSettingsView(container);
@@ -311,7 +318,10 @@ function updateUI(container, data, error = null) {
 
     if (error) {
         mainView.innerHTML = `<div class="fc-header"><span></span><span class="fc-settings-icon">⚙️</span></div><div class="fc-error">Hata: ${error}</div>`;
-        mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
+        mainView.querySelector('.fc-settings-icon').addEventListener('click', () => {
+            console.log('FastChecker: Settings icon clicked (error view)');
+            toggleView(container);
+        });
         return;
     }
 
@@ -378,7 +388,10 @@ function updateUI(container, data, error = null) {
         </div>
     `;
 
-    mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
+    mainView.querySelector('.fc-settings-icon').addEventListener('click', () => {
+        console.log('FastChecker: Settings icon clicked (main view)');
+        toggleView(container);
+    });
 
     let bsrText = 'N/A', bsrNumber = null, categoryName = 'N/A';
     function formatBsr(num) {
