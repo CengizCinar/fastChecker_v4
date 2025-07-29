@@ -252,11 +252,11 @@ def get_exchange_rates(base_currency):
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
     logger.info(f"=== PRODUCT DETAILS REQUEST ===")
     logger.info(f"ASIN: {asin}, Marketplace: {marketplace_str}")
-    
-    if not credentials or not SELLER_ID:
-        error_msg = "Server is not configured. Missing credentials or Seller ID."
-        logger.error(error_msg)
-        return {"error": error_msg}
+
+    credentials, seller_id, error = get_credentials_for_marketplace(marketplace_str)
+    if error:
+        logger.error(error)
+        return {"error": error}
 
     try:
         marketplace = getattr(Marketplaces, marketplace_str.upper())
