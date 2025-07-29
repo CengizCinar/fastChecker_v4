@@ -316,7 +316,7 @@ def health_check():
 def api_get_product_details(asin):
     logger.info(f"API request received for ASIN: {asin}")
     
-    if not credentials:
+    if not credentials_na and not credentials_eu:
         logger.error("Server not configured - missing credentials")
         return jsonify({"error": "Server is not configured correctly. Please check logs."}), 503
 
