@@ -277,7 +277,7 @@ function calculateAndDisplayShipping() {
     });
 }
 
-// GÜNCELLENMİŞ: Sadece US ve CA için otomatik cost hesaplama
+// GÜNCELLENMİŞ: Dinamik currency conversion ile cost hesaplama
 function updateCostInput() {
     const currentMarketplace = detectMarketplace();
     const isAutoCostEnabled = ['US', 'CA'].includes(currentMarketplace);
@@ -287,15 +287,69 @@ function updateCostInput() {
     if (isAutoCostEnabled && calculatedCostPerItem !== null && lowestEuPrice !== null) {
         const costInput = document.getElementById('costInput');
         if (costInput) {
-            const totalCost = (lowestEuPrice + calculatedCostPerItem) * 1.17;
-            costInput.value = totalCost.toFixed(2);
-            // Manuel olarak bir input olayı tetikle
-            const event = new Event('input', { bubbles: true });
-            costInput.dispatchEvent(event);
-            console.log(`FastChecker: Auto cost calculated: ${totalCost.toFixed(2)}`);
+            // Dinamik currency conversion
+            convertAndCalculateCost(lowestEuPrice, calculatedCostPerItem, currentMarketplace, costInput);
         }
     } else if (!isAutoCostEnabled) {
         console.log(`FastChecker: Auto cost disabled for marketplace: ${currentMarketplace}`);
+    }
+}
+
+// YENİ: Currency conversion ve cost hesaplama
+async function convertAndCalculateCost(euPrice, shippingCost, marketplace, costInput) {
+    try {
+        // Marketplace'e göre target currency belirle
+        const targetCurrency = marketplace === 'US' ? 'USD' : 'CAD';
+        
+        // Backend'den currency conversion yap
+        const response = await fetch('https://web-production-e38b7.up.railway.app/convert_currency', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                amount: euPrice,
+                from_currency: 'EUR',
+                to_currency: targetCurrency
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Currency conversion failed: ${response.status}`);
+        }
+        
+        const conversionData = await response.json();
+        
+        if (conversionData.success) {
+            const convertedEuPrice = conversionData.converted_amount;
+            const totalCost = (convertedEuPrice + shippingCost) * 1.17; // 17% markup
+            
+            costInput.value = totalCost.toFixed(2);
+            
+            // Manuel olarak bir input olayı tetikle
+            const event = new Event('input', { bubbles: true });
+            costInput.dispatchEvent(event);
+            
+            console.log(`FastChecker: Dynamic cost calculation - EU Price: ${euPrice} EUR → ${convertedEuPrice} ${targetCurrency}, Total: ${totalCost.toFixed(2)} ${targetCurrency}`);
+        } else {
+            console.error('FastChecker: Currency conversion failed:', conversionData.error);
+            // Fallback: Sabit conversion rate kullan
+            const fallbackRate = marketplace === 'US' ? 1.1 : 1.35; // USD: 1.1, CAD: 1.35
+            const totalCost = (euPrice * fallbackRate + shippingCost) * 1.17;
+            costInput.value = totalCost.toFixed(2);
+            const event = new Event('input', { bubbles: true });
+            costInput.dispatchEvent(event);
+            console.log(`FastChecker: Using fallback conversion rate: ${fallbackRate}`);
+        }
+    } catch (error) {
+        console.error('FastChecker: Currency conversion error:', error);
+        // Fallback: Sabit conversion rate kullan
+        const fallbackRate = marketplace === 'US' ? 1.1 : 1.35;
+        const totalCost = (euPrice * fallbackRate + shippingCost) * 1.17;
+        costInput.value = totalCost.toFixed(2);
+        const event = new Event('input', { bubbles: true });
+        costInput.dispatchEvent(event);
+        console.log(`FastChecker: Using fallback conversion rate due to error`);
     }
 }
 

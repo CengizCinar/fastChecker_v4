@@ -2,102 +2,164 @@ import os
 import json
 import logging
 import traceback
-from datetime import datetime
-from flask import Flask, jsonify, request
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
-from sp_api.base import Marketplaces, SellingApiException
+from sp_api.base import SellingApiException
+from sp_api.base.marketplaces import Marketplaces
+import requests
 
-# Fix the import - use relative import since bsr_scraper.py is in the same directory
-try:
-    from .bsr_scraper import scrape_bsr_table_by_country
-except ImportError:
-    # Fallback for direct execution
-    from bsr_scraper import scrape_bsr_table_by_country
+# --- Currency API Configuration ---
+CURRENCY_API_KEY = os.getenv('CURRENCY_API_KEY')
+CURRENCY_CACHE_FILE = 'currency_cache.json'
+CURRENCY_CACHE_DURATION = 24  # hours
+
+def load_currency_cache():
+    """Load currency exchange rates from cache file"""
+    try:
+        if os.path.exists(CURRENCY_CACHE_FILE):
+            with open(CURRENCY_CACHE_FILE, 'r') as f:
+                cache_data = json.load(f)
+                cache_time = datetime.fromisoformat(cache_data.get('timestamp', '2000-01-01'))
+                if datetime.now() - cache_time < timedelta(hours=CURRENCY_CACHE_DURATION):
+                    return cache_data.get('rates', {})
+    except Exception as e:
+        logger.warning(f"Could not load currency cache: {e}")
+    return {}
+
+def save_currency_cache(rates):
+    """Save currency exchange rates to cache file"""
+    try:
+        cache_data = {
+            'timestamp': datetime.now().isoformat(),
+            'rates': rates
+        }
+        with open(CURRENCY_CACHE_FILE, 'w') as f:
+            json.dump(cache_data, f)
+        logger.info("Currency cache saved successfully")
+    except Exception as e:
+        logger.error(f"Could not save currency cache: {e}")
+
+def get_exchange_rates():
+    """Get current exchange rates from API or cache"""
+    if not CURRENCY_API_KEY:
+        logger.warning("CURRENCY_API_KEY not configured, using default rates")
+        return {
+            'USD': 1.0,
+            'EUR': 0.85,
+            'GBP': 0.73,
+            'CAD': 1.25,
+            'TRY': 30.0
+        }
+    
+    # Try to load from cache first
+    cached_rates = load_currency_cache()
+    if cached_rates:
+        logger.info("Using cached exchange rates")
+        return cached_rates
+    
+    # Fetch from API if cache is expired or empty
+    try:
+        logger.info("Fetching exchange rates from API...")
+        url = f"https://v6.exchangerate-api.com/v6/{CURRENCY_API_KEY}/latest/USD"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        if data.get('result') == 'success':
+            rates = data.get('conversion_rates', {})
+            save_currency_cache(rates)
+            logger.info("Exchange rates fetched and cached successfully")
+            return rates
+        else:
+            logger.error(f"Currency API error: {data.get('error-type', 'Unknown error')}")
+            return {}
+    except Exception as e:
+        logger.error(f"Could not fetch exchange rates: {e}")
+        return {}
+
+def convert_currency(amount, from_currency, to_currency):
+    """Convert amount from one currency to another"""
+    if from_currency == to_currency:
+        return amount
+    
+    rates = get_exchange_rates()
+    if not rates:
+        logger.warning("No exchange rates available, using 1:1 conversion")
+        return amount
+    
+    # Convert to USD first, then to target currency
+    try:
+        if from_currency == 'USD':
+            usd_amount = amount
+        else:
+            from_rate = rates.get(from_currency, 1)
+            usd_amount = amount / from_rate
+        
+        if to_currency == 'USD':
+            return usd_amount
+        else:
+            to_rate = rates.get(to_currency, 1)
+            return usd_amount * to_rate
+    except Exception as e:
+        logger.error(f"Currency conversion error: {e}")
+        return amount
 
 # --- Logging Configuration ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('app.log') if os.path.exists('.') else logging.NullHandler()
-    ]
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Flask App Initialization ---
+# --- Flask App Configuration ---
 app = Flask(__name__)
 CORS(app)
 
 # --- Marketplace Configuration ---
 MARKETPLACE_REGIONS = {
-    # North America (NA) - Same credentials, different domains
     'US': {'region': 'NA', 'marketplace_id': 'ATVPDKIKX0DER'},
     'CA': {'region': 'NA', 'marketplace_id': 'A2EUQ1WTGCTBG2'},
     'MX': {'region': 'NA', 'marketplace_id': 'A1AM78C64UM0Y8'},
-    
-    # Europe (EU) - Different credentials
     'DE': {'region': 'EU', 'marketplace_id': 'A1PA6795UKMFR9'},
     'GB': {'region': 'EU', 'marketplace_id': 'A1F83G8C2ARO7P'},
     'FR': {'region': 'EU', 'marketplace_id': 'A13V1IB3VIYZZH'},
-    'IT': {'region': 'EU', 'marketplace_id': 'APJ6JRA9NG5V4'},
+    'IT': {'region': 'EU', 'marketplace_id': 'A11IBZPNXEPRB4'},
     'ES': {'region': 'EU', 'marketplace_id': 'A1RKKUPIHCS9HS'},
-    'NL': {'region': 'EU', 'marketplace_id': 'A1805IZSGTT6HS'},
-    'SE': {'region': 'EU', 'marketplace_id': 'A2NODRKZP88ZB9'},
+    'NL': {'region': 'EU', 'marketplace_id': 'A1805FZKASX7XG'},
+    'SE': {'region': 'EU', 'marketplace_id': 'A2NODRKZPJ3EIB'},
     'PL': {'region': 'EU', 'marketplace_id': 'A1C3SOZRARQ6R3'},
-    'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
+    'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'}
 }
 
-# --- Load BSR Data with Logging ---
-logger.info("=== APPLICATION STARTUP ===")
-logger.info("Loading BSR tables from SellerAmp...")
+# --- Credential Loading ---
 try:
-    BSR_TABLES = {
-        'US': scrape_bsr_table_by_country(1),
-        'CA': scrape_bsr_table_by_country(6),
-    }
-    logger.info(f"BSR tables loaded successfully. US entries: {len(BSR_TABLES.get('US', {}))}, CA entries: {len(BSR_TABLES.get('CA', {}))}")
-except Exception as e:
-    logger.error(f"Error loading BSR tables: {str(e)}")
-    logger.error(traceback.format_exc())
-    BSR_TABLES = {'US': {}, 'CA': {}}
-
-# --- Load Credentials from Environment Variables ---
-logger.info("Loading credentials from environment variables...")
-try:
-    # AWS credentials are the same for both regions
+    # Shared AWS credentials
     aws_access_key = os.environ['AWS_ACCESS_KEY_ID']
     aws_secret_key = os.environ['AWS_SECRET_ACCESS_KEY']
     
-    # NA Region credentials (US, CA, MX)
+    # NA credentials
     na_credentials = {
-        "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
-        "lwa_app_id": os.environ['AMAZON_LWA_APP_ID'],
-        "lwa_client_secret": os.environ['AMAZON_LWA_CLIENT_SECRET'],
-        "aws_access_key": aws_access_key,
-        "aws_secret_key": aws_secret_key
+        'refresh_token': os.environ['AMAZON_REFRESH_TOKEN'],
+        'lwa_app_id': os.environ['AMAZON_LWA_APP_ID'],
+        'lwa_client_secret': os.environ['AMAZON_LWA_CLIENT_SECRET'],
+        'aws_access_key': aws_access_key,
+        'aws_secret_key': aws_secret_key
     }
     na_seller_id = os.environ['AMAZON_SELLER_ID']
     
-    # EU Region credentials (if available) - using same AWS keys
+    # EU credentials (optional)
     eu_credentials = None
     eu_seller_id = None
-    
-    # Check if EU SP-API credentials are available
-    if all(key in os.environ for key in ['EU_REFRESH_TOKEN', 'EU_LWA_APP_ID', 'EU_LWA_CLIENT_SECRET', 'EU_SELLER_ID']):
+    if 'EU_REFRESH_TOKEN' in os.environ:
         eu_credentials = {
-            "refresh_token": os.environ['EU_REFRESH_TOKEN'],
-            "lwa_app_id": os.environ['EU_LWA_APP_ID'],
-            "lwa_client_secret": os.environ['EU_LWA_CLIENT_SECRET'],
-            "aws_access_key": aws_access_key,  # Same AWS keys
-            "aws_secret_key": aws_secret_key   # Same AWS keys
+            'refresh_token': os.environ['EU_REFRESH_TOKEN'],
+            'lwa_app_id': os.environ['EU_LWA_APP_ID'],
+            'lwa_client_secret': os.environ['EU_LWA_CLIENT_SECRET'],
+            'aws_access_key': aws_access_key,
+            'aws_secret_key': aws_secret_key
         }
         eu_seller_id = os.environ['EU_SELLER_ID']
-        logger.info("✅ Both NA and EU credentials loaded successfully (shared AWS keys)")
-    else:
-        logger.info("✅ NA credentials loaded successfully, EU credentials not configured")
     
+    logger.info("✅ All credentials loaded successfully")
     logger.info(f"NA Seller ID: {na_seller_id[:10]}...")  # Only show first 10 chars for security
     logger.info(f"NA LWA App ID: {na_credentials['lwa_app_id'][:10]}...")
     if eu_seller_id:
@@ -118,6 +180,8 @@ except KeyError as e:
     logger.error("- EU_LWA_APP_ID")
     logger.error("- EU_LWA_CLIENT_SECRET")
     logger.error("- EU_SELLER_ID")
+    logger.error("Optional environment variable for currency conversion:")
+    logger.error("- CURRENCY_API_KEY")
     na_credentials = None
     eu_credentials = None
     na_seller_id = None
@@ -323,109 +387,132 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.info(f"✅ Offers processed: {len(processed_offers)}")
 
         except Exception as e:
-            logger.error(f"❌ Error fetching or processing offers: {str(e)}")
+            logger.error(f"❌ Error fetching offers: {str(e)}")
             logger.error(traceback.format_exc())
             result_data['offers'] = []
             result_data['buyboxPrice'] = None
             result_data['currencyCode'] = None
 
         # 6. Fees
-        logger.info("🧮 Step 6: Calculating fees...")
-        if buybox_price and currency_code:
-            try:
-                fees_response = fees_api.get_product_fees_estimate([{'id_type': 'ASIN', 'id_value': asin, 'price': buybox_price, 'currency': currency_code, 'is_fba': True, 'marketplace_id': marketplace.marketplace_id}])
-                fees_result = fees_response.payload[0]
+        logger.info("💸 Step 6: Calculating fees...")
+        try:
+            if buybox_price and currency_code:
+                fees_response = fees_api.get_product_fees_estimate(
+                    asin=asin,
+                    price=float(buybox_price),
+                    currency=currency_code,
+                    marketplaceId=marketplace.marketplace_id,
+                    isAmazonFulfilled=True
+                )
                 
-                if fees_result.get('Status') == 'Success':
-                    fees_estimate = fees_result.get('FeesEstimate', {})
-                    total_fees = fees_estimate.get('TotalFeesEstimate', {}).get('Amount', 0.0)
-                    fee_details = fees_estimate.get('FeeDetailList', [])
-                    result_data['totalFees'] = total_fees
-                    result_data['referralFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "ReferralFee"), 0.0)
-                    result_data['fbaFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "FBAFees"), 0.0)
-                    result_data['netProfit'] = buybox_price - total_fees
-                    logger.info(f"✅ Total Fees: {total_fees}, Net Profit: {result_data['netProfit']}")
-                else:
-                    logger.warning(f"⚠️ Fees calculation failed: {fees_result.get('Status')}")
-                    result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
-            except Exception as e:
-                logger.error(f"❌ Error calculating fees: {str(e)}")
-                logger.error(traceback.format_exc())
-                result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
-        else:
-            logger.info("ℹ️ No price available for fee calculation, skipping.")
-            result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
+                fees_data = fees_response.payload.get('FeesEstimate', {})
+                fee_details = fees_data.get('FeeDetailList', [])
+                
+                referral_fee = 0
+                fba_fee = 0
+                
+                for fee in fee_details:
+                    fee_type = fee.get('FeeType', '')
+                    fee_amount = fee.get('FinalFee', {}).get('Amount', 0)
+                    
+                    if fee_type == 'ReferralFee':
+                        referral_fee = fee_amount
+                    elif fee_type == 'FBAFees':
+                        fba_fee = fee_amount
+                
+                result_data['referralFee'] = referral_fee
+                result_data['fbaFee'] = fba_fee
+                logger.info(f"✅ Fees calculated - Referral: {referral_fee}, FBA: {fba_fee}")
+            else:
+                result_data['referralFee'] = 0
+                result_data['fbaFee'] = 0
+                logger.warning("⚠️ Could not calculate fees - no buybox price")
+                
+        except Exception as e:
+            logger.error(f"❌ Error calculating fees: {str(e)}")
+            result_data['referralFee'] = 0
+            result_data['fbaFee'] = 0
 
-        logger.info("✅ Product details fetched successfully")
+        # 7. BSR Data (if available)
+        logger.info("📊 Step 7: Processing BSR data...")
+        try:
+            # This would be populated from external BSR data source
+            # For now, we'll leave it empty
+            result_data['bsr_data'] = {}
+            logger.info("ℹ️ BSR data not implemented yet")
+        except Exception as e:
+            logger.warning(f"⚠️ BSR data processing error: {str(e)}")
+            result_data['bsr_data'] = {}
+
+        logger.info("✅ Product details processing completed successfully")
         return result_data
 
-    except SellingApiException as e:
-        error_message = str(e.payload or e)
-        logger.error(f"❌ Amazon SP API Error: {error_message}")
-        logger.error(f"Full exception: {e}")
-        return {"error": f"API Error: {error_message}"}
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {str(e)}")
+        logger.error(f"❌ FATAL ERROR in get_full_product_details_as_json: {str(e)}")
         logger.error(traceback.format_exc())
-        return {"error": f"An unexpected server error occurred: {str(e)}"}
+        return {"error": f"Internal server error: {str(e)}"}
 
 # --- API Endpoints ---
 @app.route('/')
 def health_check():
-    logger.info("Health check requested")
+    """Health check endpoint"""
+    na_status = "✅ Configured" if na_credentials and na_seller_id else "❌ Not configured"
+    eu_status = "✅ Configured" if eu_credentials and eu_seller_id else "❌ Not configured"
+    currency_status = "✅ Configured" if CURRENCY_API_KEY else "❌ Not configured"
+    
+    supported_marketplaces = list(MARKETPLACE_REGIONS.keys())
+    
     return jsonify({
-        "status": "OK", 
-        "message": "FastChecker Backend is running!",
-        "timestamp": datetime.now().isoformat(),
-        "credentials_loaded": bool(na_credentials),
-        "eu_credentials_loaded": bool(eu_credentials),
-        "bsr_tables_loaded": bool(BSR_TABLES.get('US')) and bool(BSR_TABLES.get('CA')),
-        "supported_marketplaces": list(MARKETPLACE_REGIONS.keys())
+        "status": "healthy",
+        "na_credentials": na_status,
+        "eu_credentials": eu_status,
+        "currency_api": currency_status,
+        "supported_marketplaces": supported_marketplaces,
+        "timestamp": datetime.now().isoformat()
     })
 
 @app.route('/get_product_details/<string:asin>', methods=['GET'])
 def api_get_product_details(asin):
-    logger.info(f"API request received for ASIN: {asin}")
-    
-    if not na_credentials and not eu_credentials:
-        logger.error("Server not configured - missing credentials")
-        return jsonify({"error": "Server is not configured correctly. Please check logs."}), 503
-
+    """Get product details for a specific ASIN"""
     marketplace = request.args.get('marketplace', 'US')
-    logger.info(f"Marketplace: {marketplace}")
     
-    # Validate marketplace
-    if marketplace.upper() not in MARKETPLACE_REGIONS:
-        supported = ', '.join(MARKETPLACE_REGIONS.keys())
-        return jsonify({"error": f"Unsupported marketplace: {marketplace}. Supported: {supported}"}), 400
+    if marketplace not in MARKETPLACE_REGIONS:
+        return jsonify({"error": f"Unsupported marketplace: {marketplace}"}), 400
     
     try:
-        data = get_full_product_details_as_json(asin, marketplace)
-        
-        if "error" in data:
-            logger.error(f"API returning error: {data['error']}")
-            return jsonify(data), 500
-        
-        # Add BSR data if available for the marketplace
-        bsr_data = BSR_TABLES.get(marketplace.upper(), {})
-        data['bsr_data'] = bsr_data
-        logger.info(f"✅ API request completed successfully for ASIN: {asin}")
-        return jsonify(data)
-        
+        result = get_full_product_details_as_json(asin, marketplace)
+        return jsonify(result)
     except Exception as e:
-        logger.error(f"❌ Unexpected error in API endpoint: {str(e)}")
-        logger.error(traceback.format_exc())
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        logger.error(f"Error in API endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
-# --- Error Handlers ---
+@app.route('/convert_currency', methods=['POST'])
+def api_convert_currency():
+    """Convert currency using current exchange rates"""
+    try:
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        from_currency = data.get('from_currency', 'USD')
+        to_currency = data.get('to_currency', 'USD')
+        
+        converted_amount = convert_currency(amount, from_currency, to_currency)
+        
+        return jsonify({
+            "success": True,
+            "original_amount": amount,
+            "original_currency": from_currency,
+            "converted_amount": converted_amount,
+            "target_currency": to_currency
+        })
+    except Exception as e:
+        logger.error(f"Currency conversion error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 @app.errorhandler(Exception)
 def handle_exception(e):
     logger.error(f"Unhandled exception: {str(e)}")
     logger.error(traceback.format_exc())
     return jsonify({"error": "Internal server error"}), 500
 
-# --- Server Start ---
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5003))
-    logger.info(f"Starting Flask server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(debug=True, host='0.0.0.0', port=5000)
