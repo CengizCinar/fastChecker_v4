@@ -44,14 +44,8 @@ def save_currency_cache(rates):
 def get_exchange_rates():
     """Get current exchange rates from API or cache"""
     if not CURRENCY_API_KEY:
-        logger.warning("CURRENCY_API_KEY not configured, using default rates")
-        return {
-            'USD': 1.0,
-            'EUR': 0.8606,
-            'GBP': 0.7472,
-            'CAD': 1.3728,
-            'TRY': 40.5681
-        }
+        logger.error("CURRENCY_API_KEY not configured - currency conversion disabled")
+        return {}
     
     # Try to load from cache first
     cached_rates = load_currency_cache()
@@ -86,25 +80,31 @@ def convert_currency(amount, from_currency, to_currency):
     
     rates = get_exchange_rates()
     if not rates:
-        logger.warning("No exchange rates available, using 1:1 conversion")
-        return amount
+        logger.error("No exchange rates available - currency conversion failed")
+        return None
     
     # Convert to USD first, then to target currency
     try:
         if from_currency == 'USD':
             usd_amount = amount
         else:
-            from_rate = rates.get(from_currency, 1)
+            from_rate = rates.get(from_currency)
+            if not from_rate:
+                logger.error(f"Exchange rate not found for {from_currency}")
+                return None
             usd_amount = amount / from_rate
         
         if to_currency == 'USD':
             return usd_amount
         else:
-            to_rate = rates.get(to_currency, 1)
+            to_rate = rates.get(to_currency)
+            if not to_rate:
+                logger.error(f"Exchange rate not found for {to_currency}")
+                return None
             return usd_amount * to_rate
     except Exception as e:
         logger.error(f"Currency conversion error: {e}")
-        return amount
+        return None
 
 # --- Logging Configuration ---
 logging.basicConfig(level=logging.INFO)
@@ -507,6 +507,9 @@ def api_convert_currency():
         
         converted_amount = convert_currency(amount, from_currency, to_currency)
         
+        if converted_amount is None:
+            return jsonify({"error": "Currency conversion failed due to missing or invalid exchange rates."}), 500
+
         return jsonify({
             "success": True,
             "original_amount": amount,

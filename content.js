@@ -301,6 +301,8 @@ async function convertAndCalculateCost(euPrice, shippingCost, marketplace, costI
         // Marketplace'e göre target currency belirle
         const targetCurrency = marketplace === 'US' ? 'USD' : 'CAD';
         
+        console.log(`FastChecker: Converting ${euPrice} EUR to ${targetCurrency}...`);
+        
         // Backend'den currency conversion yap
         const response = await fetch('https://web-production-e38b7.up.railway.app/convert_currency', {
             method: 'POST',
@@ -320,7 +322,7 @@ async function convertAndCalculateCost(euPrice, shippingCost, marketplace, costI
         
         const conversionData = await response.json();
         
-        if (conversionData.success) {
+        if (conversionData.success && conversionData.converted_amount !== null) {
             const convertedEuPrice = conversionData.converted_amount;
             const totalCost = (convertedEuPrice + shippingCost) * 1.17; // 17% markup
             
@@ -339,7 +341,7 @@ async function convertAndCalculateCost(euPrice, shippingCost, marketplace, costI
             costInput.value = totalCost.toFixed(2);
             const event = new Event('input', { bubbles: true });
             costInput.dispatchEvent(event);
-            console.log(`FastChecker: Using fallback conversion rate: ${fallbackRate}`);
+            console.log(`FastChecker: Using fallback conversion rate: ${fallbackRate} (API conversion failed)`);
         }
     } catch (error) {
         console.error('FastChecker: Currency conversion error:', error);
@@ -349,7 +351,7 @@ async function convertAndCalculateCost(euPrice, shippingCost, marketplace, costI
         costInput.value = totalCost.toFixed(2);
         const event = new Event('input', { bubbles: true });
         costInput.dispatchEvent(event);
-        console.log(`FastChecker: Using fallback conversion rate due to error`);
+        console.log(`FastChecker: Using fallback conversion rate due to error: ${fallbackRate}`);
     }
 }
 
