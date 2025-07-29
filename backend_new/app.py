@@ -47,22 +47,30 @@ except Exception as e:
 # --- Load Credentials from Environment Variables ---
 logger.info("Loading credentials from environment variables...")
 try:
-    credentials = {
-        "refresh_token": os.environ['AMAZON_REFRESH_TOKEN'],
-        "lwa_app_id": os.environ['AMAZON_LWA_APP_ID'],
-        "lwa_client_secret": os.environ['AMAZON_LWA_CLIENT_SECRET'],
+    credentials_na = {
+        "refresh_token": os.environ['NA_REFRESH_TOKEN'],
+        "lwa_app_id": os.environ['NA_LWA_APP_ID'],
+        "lwa_client_secret": os.environ['NA_LWA_CLIENT_SECRET'],
         "aws_access_key": os.environ['AWS_ACCESS_KEY_ID'],
         "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
     }
-    SELLER_ID = os.environ['AMAZON_SELLER_ID']
-    logger.info("✅ All credentials loaded successfully")
-    logger.info(f"Seller ID: {SELLER_ID[:10]}...")
-    logger.info(f"LWA App ID: {credentials['lwa_app_id'][:10]}...")
+    seller_id_na = os.environ['NA_SELLER_ID']
+
+    credentials_eu = {
+        "refresh_token": os.environ['EU_REFRESH_TOKEN'],
+        "lwa_app_id": os.environ['EU_LWA_APP_ID'],
+        "lwa_client_secret": os.environ['EU_LWA_CLIENT_SECRET'],
+        "aws_access_key": os.environ['AWS_ACCESS_KEY_ID'],
+        "aws_secret_key": os.environ['AWS_SECRET_ACCESS_KEY']
+    }
+    seller_id_eu = os.environ['EU_SELLER_ID']
+    logger.info("✅ All NA and EU credentials loaded successfully")
 except KeyError as e:
     logger.error(f"❌ FATAL ERROR: Environment variable not found - {e}")
-    # ... (Mevcut hata loglarınız korundu)
-    credentials = None
-    SELLER_ID = None
+    credentials_na = None
+    seller_id_na = None
+    credentials_eu = None
+    seller_id_eu = None
 
 # --- YENİ: Birim Dönüşüm Fonksiyonları ---
 # Kodu daha temiz ve güvenilir hale getirmek için
@@ -100,17 +108,27 @@ def convert_to_gr(weight_data):
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
     logger.info(f"=== PRODUCT DETAILS REQUEST ===")
     logger.info(f"ASIN: {asin}, Marketplace: {marketplace_str}")
-    
-    if not credentials or not SELLER_ID:
-        error_msg = "Server is not configured. Missing credentials or Seller ID."
-        logger.error(error_msg)
-        return {"error": error_msg}
 
     try:
         marketplace = getattr(Marketplaces, marketplace_str.upper())
         logger.info(f"✅ Marketplace resolved: {marketplace.marketplace_id}")
     except AttributeError:
         error_msg = f"Invalid marketplace: '{marketplace_str}'"
+        logger.error(error_msg)
+        return {"error": error_msg}
+
+    # Select credentials based on marketplace region
+    if marketplace.region == 'EU':
+        credentials = credentials_eu
+        seller_id = seller_id_eu
+        logger.info("Using EU credentials")
+    else:
+        credentials = credentials_na
+        seller_id = seller_id_na
+        logger.info("Using NA credentials")
+
+    if not credentials or not seller_id:
+        error_msg = "Server is not configured for the requested region. Missing credentials or Seller ID."
         logger.error(error_msg)
         return {"error": error_msg}
 
