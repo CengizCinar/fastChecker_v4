@@ -274,14 +274,10 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         return result_data
 
     except SellingApiException as e:
-        error_message = str(e.payload or e)
+        error_message = str(e.payload if hasattr(e, 'payload') and e.payload else e)
         logger.error(f"❌ Amazon SP API Error: {error_message}")
         logger.error(f"Full exception: {e}")
         return {"error": f"API Error: {error_message}"}
-    except Exception as e:
-        logger.error(f"❌ Unexpected error: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {"error": f"An unexpected server error occurred: {str(e)}"}
 
 # --- API Endpoints - DOKUNULMADI ---
 @app.route('/')
