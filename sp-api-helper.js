@@ -25,14 +25,19 @@ class SPAPIHelper {
             'SG': { endpoint: 'https://sellingpartnerapi-fe.amazon.com', marketplaceId: 'A19VAU5U5O7RUS', region: 'us-west-2' }
         };
         
-        this.accessToken = null;
-        this.tokenExpiry = null;
+        this.accessTokens = {};
+        this.tokenExpiries = {};
     }
 
-    async getAccessToken(credentials) {
-        if (this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
-            return this.accessToken;
+    async getAccessToken(credentials, marketplace) {
+        const marketplaceInfo = this.marketplaces[marketplace];
+        const region = marketplaceInfo ? (marketplaceInfo.region === 'eu-west-1' ? 'eu' : 'na') : 'na';
+
+        if (this.accessTokens[region] && this.tokenExpiries[region] && Date.now() < this.tokenExpiries[region]) {
+            return this.accessTokens[region];
         }
+
+        const refreshToken = region === 'eu' ? credentials.eu_refresh_token : credentials.refresh_token;
 
         try {
             const response = await fetch('https://api.amazon.com/auth/o2/token', {
@@ -40,7 +45,7 @@ class SPAPIHelper {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
                     'grant_type': 'refresh_token',
-                    'refresh_token': credentials.refresh_token,
+                    'refresh_token': refreshToken,
                     'client_id': credentials.lwa_app_id,
                     'client_secret': credentials.lwa_client_secret
                 })
@@ -48,15 +53,15 @@ class SPAPIHelper {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(`Token request failed: ${errorData.error_description || response.statusText}`);
+                throw new Error(`Token request failed for ${region}: ${errorData.error_description || response.statusText}`);
             }
 
             const data = await response.json();
-            this.accessToken = data.access_token;
-            this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
-            return this.accessToken;
+            this.accessTokens[region] = data.access_token;
+            this.tokenExpiries[region] = Date.now() + (data.expires_in * 1000) - 60000;
+            return this.accessTokens[region];
         } catch (error) {
-            console.error('Error getting access token:', error);
+            console.error(`Error getting access token for ${region}:`, error);
             throw error;
         }
     }
@@ -88,7 +93,7 @@ class SPAPIHelper {
     }
 
     async getCatalogItem(asin, credentials, marketplace) {
-        const accessToken = await this.getAccessToken(credentials);
+        const accessToken = await this.getAccessToken(credentials, marketplace);
         const marketplaceInfo = this.marketplaces[marketplace];
         if (!marketplaceInfo) throw new Error(`Unsupported marketplace: ${marketplace}`);
 
@@ -102,7 +107,7 @@ class SPAPIHelper {
     }
 
     async getListingsRestrictions(asin, sellerId, credentials, marketplace) {
-        const accessToken = await this.getAccessToken(credentials);
+        const accessToken = await this.getAccessToken(credentials, marketplace);
         const marketplaceInfo = this.marketplaces[marketplace];
         if (!marketplaceInfo) throw new Error(`Unsupported marketplace: ${marketplace}`);
         
@@ -119,8 +124,12 @@ class SPAPIHelper {
 
     async checkASINSellability(asin, credentials, sellerId, marketplace) {
         try {
+            const marketplaceInfo = this.marketplaces[marketplace];
+            const region = marketplaceInfo ? (marketplaceInfo.region === 'eu-west-1' ? 'eu' : 'na') : 'na';
+            const currentSellerId = region === 'eu' ? credentials.eu_seller_id : sellerId;
+
             // Get restrictions first, as it's the primary check
-            const restrictionsResponse = await this.getListingsRestrictions(asin, sellerId, credentials, marketplace);
+            const restrictionsResponse = await this.getListingsRestrictions(asin, currentSellerId, credentials, marketplace);
             const restrictions = restrictionsResponse.restrictions || [];
 
             // Get product information for context

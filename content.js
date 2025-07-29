@@ -413,9 +413,33 @@ chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListen
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
+
+    const marketPlaceMap = {
+        'www.amazon.com': 'US',
+        'www.amazon.ca': 'CA',
+        'www.amazon.com.mx': 'MX',
+        'www.amazon.com.br': 'BR',
+        'www.amazon.co.uk': 'UK',
+        'www.amazon.de': 'DE',
+        'www.amazon.fr': 'FR',
+        'www.amazon.it': 'IT',
+        'www.amazon.es': 'ES',
+        'www.amazon.com.au': 'AU',
+        'www.amazon.co.jp': 'JP',
+        'www.amazon.in': 'IN',
+        'www.amazon.cn': 'CN',
+        'www.amazon.com.tr': 'TR',
+        'www.amazon.ae': 'AE',
+        'www.amazon.sa': 'SA',
+        'www.amazon.se': 'SE',
+        'www.amazon.pl': 'PL',
+        'www.amazon.eg': 'EG'
+    };
+    const currentMarketplace = marketPlaceMap[window.location.hostname];
+
     const container = createUIContainer();
     if (!container) return;
-    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=US`)
+    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${currentMarketplace}`)
         .then(r => r.json())
         .then(data => {
             if (data.error) { updateUI(container, {}, data.error); }
