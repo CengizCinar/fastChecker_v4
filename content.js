@@ -5,67 +5,6 @@ let productData = {}; // Gelen ürün verisini globalde tutmak için
 let calculatedCostPerItem = null;
 let lowestEuPrice = null;
 
-// --- VAT Oranları (EU Ülkeleri) ---
-const VAT_RATES = {
-    'DE': 0.19, // Almanya
-    'FR': 0.20, // Fransa
-    'IT': 0.22, // İtalya
-    'ES': 0.21, // İspanya
-    'NL': 0.21, // Hollanda
-    'SE': 0.25, // İsveç
-    'PL': 0.23, // Polonya
-    'BE': 0.21, // Belçika
-    'GB': 0.20, // İngiltere
-    'AT': 0.20, // Avusturya
-    'IE': 0.23, // İrlanda
-    'DK': 0.25, // Danimarka
-    'FI': 0.24, // Finlandiya
-    'PT': 0.23, // Portekiz
-    'GR': 0.24, // Yunanistan
-    'CZ': 0.21, // Çek Cumhuriyeti
-    'HU': 0.27, // Macaristan
-    'RO': 0.19, // Romanya
-    'BG': 0.20, // Bulgaristan
-    'HR': 0.25, // Hırvatistan
-    'SI': 0.22, // Slovenya
-    'SK': 0.20, // Slovakya
-    'LT': 0.21, // Litvanya
-    'LV': 0.21, // Letonya
-    'EE': 0.20, // Estonya
-    'CY': 0.19, // Kıbrıs
-    'LU': 0.17, // Lüksemburg
-    'MT': 0.18  // Malta
-};
-
-// --- VAT Hesaplama Fonksiyonları ---
-function calculateVATExcludedPrice(price, countryCode) {
-    const vatRate = VAT_RATES[countryCode];
-    if (!vatRate) {
-        console.warn(`FastChecker: VAT rate not found for country ${countryCode}, using original price`);
-        return price;
-    }
-    
-    // VAT dahil fiyattan VAT hariç fiyatı hesapla
-    const vatExcludedPrice = price / (1 + vatRate);
-    console.log(`FastChecker: VAT calculation for ${countryCode}: ${price} EUR (incl. VAT) → ${vatExcludedPrice.toFixed(2)} EUR (excl. VAT)`);
-    
-    return vatExcludedPrice;
-}
-
-function calculateVATIncludedPrice(price, countryCode) {
-    const vatRate = VAT_RATES[countryCode];
-    if (!vatRate) {
-        console.warn(`FastChecker: VAT rate not found for country ${countryCode}, using original price`);
-        return price;
-    }
-    
-    // VAT hariç fiyattan VAT dahil fiyatı hesapla
-    const vatIncludedPrice = price * (1 + vatRate);
-    console.log(`FastChecker: VAT calculation for ${countryCode}: ${price} EUR (excl. VAT) → ${vatIncludedPrice.toFixed(2)} EUR (incl. VAT)`);
-    
-    return vatIncludedPrice;
-}
-
 // --- Orijinal Fonksiyonlar ---
 function getAsinFromUrl() {
     const match = window.location.pathname.match(/\/dp\/([A-Z0-9]{10})/);
@@ -450,7 +389,7 @@ function updateUI(container, data, error = null) {
         <div class="fc-card fc-sellers"><div class="fc-card-header"><span class="icon">📦</span><h4>Satıcılar (${offers.length})</h4></div><div class="fc-seller-list">${sellersHtml}</div></div>
         <div class="fc-card fc-eu-market-prices" id="fc-eu-market-prices">
             <div class="fc-card-header">
-                <span class="icon">🇪🇺</span><h4>EU Market Fiyatları (VAT Hariç)</h4>
+                <span class="icon">🇪🇺</span><h4>EU Market Fiyatları</h4>
             </div>
             <div class="fc-eu-prices-list" style="max-height: 120px; overflow-y: auto;">
                 <div class="fc-no-eu-price">Fiyat verisi yok.</div>
@@ -512,43 +451,27 @@ function updateUI(container, data, error = null) {
     calculateAndDisplayShipping();
 }
 
-// GÜNCELLENMİŞ: VAT hariç fiyatları göster
 function renderEuMarketPrices(container, asin, prices) {
     const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
     const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
     let euBox = container.querySelector('#fc-eu-market-prices'); if (!euBox) return;
     const list = euBox.querySelector('.fc-eu-prices-list'); if (!list) return;
     if (!prices || prices.length === 0) { list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>'; return; }
-    
-    // VAT hariç fiyatları hesapla
-    const vatExcludedPrices = prices.map(p => {
-        const vatExcludedPrice = calculateVATExcludedPrice(p.price, p.market);
-        return {
-            ...p,
-            price: vatExcludedPrice,
-            originalPrice: p.price // Orijinal fiyatı da sakla
-        };
-    });
-    
     list.innerHTML = `
         <table class="fc-eu-market-table">
-            <thead><tr><th>Ülke</th><th>Adet</th><th>Fiyat (VAT Hariç)</th><th>VAT Oranı</th></tr></thead>
+            <thead><tr><th>Ülke</th><th>Adet</th><th>Fiyat</th></tr></thead>
             <tbody>
-                ${vatExcludedPrices.map(p => {
-                    const vatRate = VAT_RATES[p.market] || 0;
-                    const vatPercentage = (vatRate * 100).toFixed(0);
-                    return `
+                ${prices.map(p => `
                     <tr>
                         <td>${countryFlags[p.market] || ''} ${p.market}</td>
                         <td>${p.moq}</td>
                         <td><a href="https://www.amazon.${marketDomains[p.market] || 'com'}/dp/${asin}" target="_blank">${formatCurrency(p.price, p.currency || 'EUR')}</a></td>
-                        <td>${vatPercentage}%</td>
                     </tr>
-                `}).join('')}
+                `).join('')}
             </tbody>
         </table>`;
 
-    const euroPrices = vatExcludedPrices.filter(p => p.currency === 'EUR');
+    const euroPrices = prices.filter(p => p.currency === 'EUR');
     if (euroPrices.length > 0) {
         lowestEuPrice = Math.min(...euroPrices.map(p => p.price));
         updateCostInput();
