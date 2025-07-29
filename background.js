@@ -86,7 +86,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         return true; // Asenkron yanıt için
     }
+
+    // 4. YENİ EU MARKET FİYATLARI ÖZELLİĞİ
+    if (request.action === 'fetchEuMarketPrices') {
+        console.log("BACKGROUND: 'fetchEuMarketPrices' talebi alındı.");
+        const { asin, markets } = request;
+        handleEuMarketPrices(asin, markets, sendResponse);
+        return true; // Asenkron işlem
+    }
 });
+
+// --- YENİ EU MARKET FİYATLARI HANDLER ---
+async function handleEuMarketPrices(asin, markets, sendResponse) {
+    try {
+        console.log(`BACKGROUND: EU market fiyatları çekiliyor - ASIN: ${asin}, Markets: ${markets.join(', ')}`);
+        
+        // Şimdilik mock data döndür (websocket bağlantısı olmadığı için)
+        // Gerçek implementasyonda bu kısım backend'den B2B fiyatları çekecek
+        const mockPrices = [
+            { market: 'DE', price: 19.4, currency: 'EUR', moq: 1 },
+            { market: 'ES', price: 18.5, currency: 'EUR', moq: 1 },
+            { market: 'IT', price: 19.99, currency: 'EUR', moq: 2 },
+            { market: 'FR', price: 20.1, currency: 'EUR', moq: 5 }
+        ];
+
+        // Rate limiting için 1 saniye bekle
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Content script'e fiyatları gönder
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    action: 'euMarketPrices',
+                    asin: asin,
+                    prices: mockPrices
+                });
+            }
+        });
+
+        sendResponse({ success: true, prices: mockPrices });
+        
+    } catch (error) {
+        console.error('BACKGROUND: EU market fiyatları çekilirken hata:', error);
+        sendResponse({ success: false, error: error.message });
+    }
+}
 
 // --- render websocket ---
 async function handleAsinCheck(data, sendResponse) {
