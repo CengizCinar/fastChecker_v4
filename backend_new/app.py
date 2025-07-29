@@ -2,9 +2,10 @@ import os
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import requests
 from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
 from sp_api.base import Marketplaces, SellingApiException
 
@@ -14,6 +15,46 @@ try:
 except ImportError:
     # Fallback for direct execution
     from bsr_scraper import scrape_bsr_table_by_country
+
+import requests
+
+# --- Exchange Rate Cache --- 
+EXCHANGE_RATE_API_KEY = os.environ.get('EXCHANGE_RATE_API_KEY')
+EXCHANGE_RATE_CACHE_FILE = 'exchange_rate_cache.json'
+
+def get_exchange_rates():
+    if not EXCHANGE_RATE_API_KEY:
+        logger.warning("EXCHANGE_RATE_API_KEY is not set. Currency conversion will be disabled.")
+        return None
+
+    try:
+        if os.path.exists(EXCHANGE_RATE_CACHE_FILE):
+            with open(EXCHANGE_RATE_CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+                # Check if cache is less than 24 hours old
+                if datetime.now() - datetime.fromisoformat(cache['timestamp']) < timedelta(days=1):
+                    logger.info("Using cached exchange rates.")
+                    return cache['rates']
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error(f"Could not read exchange rate cache: {e}")
+
+    logger.info("Fetching new exchange rates from API...")
+    try:
+        response = requests.get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/EUR")
+        response.raise_for_status()
+        data = response.json()
+        if data.get('result') == 'success':
+            rates = data['conversion_rates']
+            with open(EXCHANGE_RATE_CACHE_FILE, 'w') as f:
+                json.dump({'timestamp': datetime.now().isoformat(), 'rates': rates}, f)
+            logger.info("Successfully fetched and cached new exchange rates.")
+            return rates
+        else:
+            logger.error(f"Exchange rate API error: {data.get('error-type')}")
+            return None
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch exchange rates: {e}")
+        return None
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -408,7 +449,8 @@ def api_get_product_details(asin):
         
         # Add BSR data if available for the marketplace
         bsr_data = BSR_TABLES.get(marketplace.upper(), {})
-        data['bsr_data'] = bsr_data
+        data['bsr_data'] = BSR_TABLES.get(marketplace.upper())
+        data['exchange_rates'] = get_exchange_rates() # Add exchange rates to the response
         logger.info(f"✅ API request completed successfully for ASIN: {asin}")
         return jsonify(data)
         

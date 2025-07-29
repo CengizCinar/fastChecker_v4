@@ -161,6 +161,7 @@ function saveShippingSettings() {
         currency: document.getElementById('pkgCurrency') ? document.getElementById('pkgCurrency').value : 'USD',
     };
     chrome.storage.local.set({ shippingSettings: settings }, () => {
+        localStorage.setItem('shippingSettings', JSON.stringify(settings)); // Save to localStorage as well
         console.log('FastChecker: Kargo ayarları kaydedildi.');
         alert('Ayarlar kaydedildi!');
         calculateAndDisplayShipping();
@@ -278,14 +279,20 @@ function calculateAndDisplayShipping() {
 }
 
 function updateCostInput() {
-    if (calculatedCostPerItem !== null && lowestEuPrice !== null) {
+    if (calculatedCostPerItem !== null && lowestEuPrice !== null && productData.exchange_rates) {
         const costInput = document.getElementById('costInput');
         if (costInput) {
-            const totalCost = (lowestEuPrice + calculatedCostPerItem) * 1.17;
-            costInput.value = totalCost.toFixed(2);
-            // Manuel olarak bir input olayı tetikle
-            const event = new Event('input', { bubbles: true });
-            costInput.dispatchEvent(event);
+            const shippingSettings = JSON.parse(localStorage.getItem('shippingSettings') || '{}');
+            const targetCurrency = shippingSettings.currency || 'USD';
+            const exchangeRate = productData.exchange_rates[targetCurrency];
+
+            if (exchangeRate) {
+                const lowestEuPriceInTargetCurrency = lowestEuPrice * exchangeRate;
+                const totalCost = lowestEuPriceInTargetCurrency + calculatedCostPerItem;
+                costInput.value = totalCost.toFixed(2);
+                const event = new Event('input', { bubbles: true });
+                costInput.dispatchEvent(event);
+            }
         }
     }
 }
