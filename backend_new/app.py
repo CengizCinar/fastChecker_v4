@@ -47,10 +47,10 @@ def get_exchange_rates():
         logger.warning("CURRENCY_API_KEY not configured, using default rates")
         return {
             'USD': 1.0,
-            'EUR': 0.85,
-            'GBP': 0.73,
-            'CAD': 1.25,
-            'TRY': 30.0
+            'EUR': 0.8606,
+            'GBP': 0.7472,
+            'CAD': 1.3728,
+            'TRY': 40.5681
         }
     
     # Try to load from cache first
@@ -397,6 +397,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         logger.info("💸 Step 6: Calculating fees...")
         try:
             if buybox_price and currency_code:
+                logger.info(f"Calculating fees for price: {buybox_price} {currency_code}")
                 fees_response = fees_api.get_product_fees_estimate(
                     asin=asin,
                     price=float(buybox_price),
@@ -405,8 +406,14 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                     isAmazonFulfilled=True
                 )
                 
+                logger.info(f"Fees API response: {fees_response.payload}")
+                
                 fees_data = fees_response.payload.get('FeesEstimate', {})
                 fee_details = fees_data.get('FeeDetailList', [])
+                
+                logger.info(f"Fee details found: {len(fee_details)}")
+                for fee in fee_details:
+                    logger.info(f"Fee: {fee}")
                 
                 referral_fee = 0
                 fba_fee = 0
@@ -414,6 +421,8 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 for fee in fee_details:
                     fee_type = fee.get('FeeType', '')
                     fee_amount = fee.get('FinalFee', {}).get('Amount', 0)
+                    
+                    logger.info(f"Processing fee type: {fee_type}, amount: {fee_amount}")
                     
                     if fee_type == 'ReferralFee':
                         referral_fee = fee_amount
@@ -430,6 +439,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 
         except Exception as e:
             logger.error(f"❌ Error calculating fees: {str(e)}")
+            logger.error(traceback.format_exc())
             result_data['referralFee'] = 0
             result_data['fbaFee'] = 0
 
