@@ -437,7 +437,9 @@ function updateUI(container, data, error = null) {
     }
     costInput.addEventListener('input', calculateProfit); costInput.addEventListener('blur', () => formatInput(costInput));
     saleInput.addEventListener('input', calculateProfit); saleInput.addEventListener('blur', () => formatInput(saleInput));
-    if (data.buyboxPrice) saleInput.value = data.buyboxPrice.toFixed(2);
+    if (typeof data.buyboxPrice === 'number') {
+        saleInput.value = data.buyboxPrice.toFixed(2);
+    }
     calculateProfit();
     calculateAndDisplayShipping();
 }
