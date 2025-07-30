@@ -489,17 +489,19 @@ chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListen
     const container = createUIContainer();
     if (!container) return;
     
-    // Backend'den veri çek - marketplace parametresi ile
-    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${marketplace}`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) {
-                updateUI(container, {}, data.error);
-            } else {
-                updateUI(container, data);
-            }
-        })
-        .catch(e => updateUI(container, {}, e.message));
+    // Backend'den veriyi background script aracılığıyla çek
+    chrome.runtime.sendMessage({ 
+        action: 'fetchProductDetails', 
+        asin: asin, 
+        marketplace: marketplace 
+    }, (response) => {
+        if (response && response.success) {
+            updateUI(container, response.data);
+        } else {
+            const errorMessage = response ? response.error : 'Failed to fetch product details.';
+            updateUI(container, {}, errorMessage);
+        }
+    });
     
     renderEuMarketPrices(container, asin, []);
     chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
