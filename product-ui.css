@@ -13,6 +13,9 @@
 
 /* ANA KONUMLANDIRMA ÇÖZÜMÜ (KOMPAKT & DENGELİ) */
 #fastchecker-product-ui {
+    max-height: 600px;
+    height: 600px;
+    overflow-y: auto;
     width: 290.75px;
     /* Genişliği 290px olarak ayarla */
 
@@ -409,4 +412,155 @@
     color: var(--fc-text-primary);
     font-weight: 400;
     margin-bottom: 2px;
+}
+
+/* EU Market Prices - Scroll olmayan versiyonu */
+.fc-eu-market-prices {
+    margin-top: 10px;
+}
+
+.fc-eu-prices-list {
+    max-height: none !important;
+    overflow-y: unset !important;
+    padding: 0 0 4px 0;
+}
+
+.fc-eu-market-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.fc-eu-market-table th,
+.fc-eu-market-table td {
+    padding: 4px 6px;
+    text-align: left;
+}
+
+.fc-eu-market-table th {
+    font-weight: 600;
+    background: #f6fafd;
+}
+
+.fc-eu-market-table tr {
+    border-bottom: 1px solid #e3e9f3;
+}
+
+.fc-eu-market-table tr:last-child {
+    border-bottom: none;
+}
+
+.fc-eu-market-table td {
+    color: var(--fc-text-secondary);
+}
+
+.fc-eu-market-table td a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.fc-eu-market-table td a:hover {
+    text-decoration: underline;
+}
+
+.fc-eu-price-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--fc-border);
+    font-size: 13px;
+}
+
+.fc-eu-price-row:last-child {
+    border-bottom: none;
+}
+
+.fc-eu-price-row span {
+    font-weight: 600;
+    color: var(--fc-text-primary);
+}
+
+.fc-no-eu-price {
+    text-align: center;
+    color: var(--fc-text-secondary);
+    font-size: 13px;
+    padding: 10px 0;
+}
+
+/* --- YENİ AYARLAR SAYFASI STİLLERİ --- */
+.fc-settings-view {
+    display: none; /* Varsayılan olarak gizli */
+    padding: 15px;
+}
+
+.fc-settings-view .fc-card-header {
+    margin-bottom: 20px;
+}
+
+.fc-settings-view .input-group {
+    margin-bottom: 15px;
+}
+
+.fc-settings-view .dimension-inputs {
+    display: flex;
+    gap: 8px;
+}
+
+.fc-settings-view .dimension-inputs .input-group {
+    flex: 1;
+}
+
+.fc-settings-btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background-color: var(--fc-purple);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.fc-settings-btn:hover {
+    background-color: #7c4ee3;
+}
+
+.fc-dimension-input {
+    width: 48px;
+    min-width: 0;
+    max-width: 60px;
+    text-align: right;
+    font-size: 14px;
+    padding: 6px 8px;
+    margin-right: 6px;
+    box-sizing: border-box;
+}
+
+.fc-currency-select {
+    width: 48px;
+    min-width: 0;
+    max-width: 56px;
+    font-size: 18px;
+    padding: 4px 2px;
+    border-radius: 6px;
+    margin-left: 2px;
+    background: #f8fafc;
+    border: 1.5px solid #e0e0e0;
+    color: #222;
+    outline: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    text-align: center;
+}
+
+.fc-settings-icon {
+    cursor: pointer;
+    transition: background 0.2s;
+    border-radius: 6px;
+    padding: 2px 6px;
+}
+.fc-settings-icon:hover {
+    background: #e3e9f3;
 }
