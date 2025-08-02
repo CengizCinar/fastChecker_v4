@@ -277,85 +277,76 @@ function calculateAndDisplayShipping() {
     });
 }
 
-// GÜNCELLENMİŞ: Backend'den gelen converted prices kullanarak cost hesaplama
+// --- YENİ YARDIMCI FONKSİYON ---
+
+/**
+ * productData objesinden belirli bir kur dönüşüm oranını güvenilir bir şekilde alır.
+ * @param {string} fromCurrency - Kaynak para birimi (Örn: 'EUR')
+ * @param {string} toCurrency - Hedef para birimi (Örn: 'USD')
+ * @returns {number|null} - Dönüşüm oranını veya bulunamazsa null döner.
+ */
+function getConversionRate(fromCurrency, toCurrency) {
+    if (!productData || !productData.exchangeRates) {
+        console.warn('FastChecker: Kur verisi (exchangeRates) bulunamadı.');
+        return null;
+    }
+
+    const rateKey = `${fromCurrency}_${toCurrency}`; // Örn: "EUR_USD"
+    
+    if (productData.exchangeRates[rateKey]) {
+        const rate = productData.exchangeRates[rateKey];
+        console.log(`FastChecker: ${rateKey} için kur bulundu: ${rate}`);
+        return rate;
+    }
+
+    console.warn(`FastChecker: ${rateKey} için kur bulunamadı.`);
+    return null;
+}
+
+// YENİLENMİŞ: Maliyet hesaplama ve input'a yazma fonksiyonu
 function updateCostInput() {
     const currentMarketplace = detectMarketplace();
     const isAutoCostEnabled = ['US', 'CA'].includes(currentMarketplace);
-    
-    console.log(`FastChecker: updateCostInput called - Marketplace: ${currentMarketplace}, Auto Cost: ${isAutoCostEnabled}`);
-    
-    if (isAutoCostEnabled && calculatedCostPerItem !== null && lowestEuPrice !== null) {
-        const costInput = document.getElementById('costInput');
-        if (costInput) {
-            // Backend'den gelen converted prices kullan
-            calculateCostWithBackendData(lowestEuPrice, calculatedCostPerItem, currentMarketplace, costInput);
-        }
-    } else if (!isAutoCostEnabled) {
-        console.log(`FastChecker: Auto cost disabled for marketplace: ${currentMarketplace}`);
+
+    // Otomatik maliyet hesaplama aktif değilse veya gerekli veriler eksikse işlemi durdur.
+    if (!isAutoCostEnabled || calculatedCostPerItem === null || lowestEuPrice === null) {
+        console.log(`FastChecker: Otomatik maliyet hesaplama koşulları sağlanmadı.`, { isAutoCostEnabled, calculatedCostPerItem, lowestEuPrice });
+        return;
+    }
+
+    const costInput = document.getElementById('costInput');
+    if (!costInput) return;
+
+    // Hedef para birimini belirle
+    const targetCurrency = currentMarketplace === 'US' ? 'USD' : 'CAD';
+
+    // Kur oranını yeni helper fonksiyonumuzla alalım
+    // En düşük EU fiyatı her zaman EUR varsayıyoruz.
+    const conversionRate = getConversionRate('EUR', targetCurrency);
+
+    if (conversionRate) {
+        // Kur bulundu, hesaplamayı yap
+        const convertedEuPrice = lowestEuPrice * conversionRate;
+        const shippingCostInTargetCurrency = calculatedCostPerItem; // Kargo maliyetinin zaten hedef para biriminde olduğunu varsayıyoruz. Eğer değilse onu da çevirmeliyiz.
+        
+        // %17 kâr marjı eklenmiş toplam maliyet
+        const totalCost = (convertedEuPrice + shippingCostInTargetCurrency) * 1.17;
+
+        costInput.value = totalCost.toFixed(2);
+        
+        // Değişikliği diğer component'lerin algılaması için 'input' event'ini manuel olarak tetikle
+        costInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        console.log(`FastChecker: Maliyet başarıyla hesaplandı. EU Fiyatı: ${lowestEuPrice} EUR -> ${convertedEuPrice.toFixed(2)} ${targetCurrency}. Toplam Maliyet: ${totalCost.toFixed(2)} ${targetCurrency}`);
+
+    } else {
+        // Kur bulunamadı, kullanıcıyı bilgilendir
+        console.error(`FastChecker: ${targetCurrency} için kur oranı alınamadı. Maliyet hesaplanamıyor.`);
+        costInput.placeholder = "Kur alınamadı"; // Kullanıcıya geri bildirim ver
+        // Hard-coded fallback yerine kullanıcıya bilgi vermek daha doğrudur.
     }
 }
 
-// YENİ: Backend'den gelen exchange rate data ile cost hesaplama
-function calculateCostWithBackendData(euPrice, shippingCost, marketplace, costInput) {
-    try {
-        // Marketplace'e göre target currency belirle
-        const targetCurrency = marketplace === 'US' ? 'USD' : 'CAD';
-        
-        console.log(`FastChecker: Using backend converted prices for ${euPrice} EUR to ${targetCurrency}...`);
-        
-        // ProductData'dan converted prices al
-        let convertedEuPrice = null;
-        
-        if (productData.convertedPrices && productData.convertedPrices[targetCurrency]) {
-            // Backend'den gelen converted price varsa kullan
-            const originalPrice = productData.originalPrice || euPrice;
-            const conversionRate = productData.convertedPrices[targetCurrency] / originalPrice;
-            convertedEuPrice = euPrice * conversionRate;
-            
-            console.log(`FastChecker: Using backend conversion rate: ${conversionRate} for ${targetCurrency}`);
-        } else if (productData.exchangeRates && productData.exchangeRates[`EUR_${targetCurrency}`]) {
-            // Exchange rate var ama converted price yoksa, rate'i kullan
-            const exchangeRate = productData.exchangeRates[`EUR_${targetCurrency}`];
-            convertedEuPrice = euPrice * exchangeRate;
-            
-            console.log(`FastChecker: Using backend exchange rate: ${exchangeRate} for EUR_${targetCurrency}`);
-        }
-        
-        if (convertedEuPrice !== null) {
-            const totalCost = (convertedEuPrice + shippingCost) * 1.17; // 17% markup
-            
-            costInput.value = totalCost.toFixed(2);
-            
-            // Manuel olarak bir input olayı tetikle
-            const event = new Event('input', { bubbles: true });
-            costInput.dispatchEvent(event);
-            
-            console.log(`FastChecker: Backend conversion - EU Price: ${euPrice} EUR → ${convertedEuPrice.toFixed(2)} ${targetCurrency}, Total: ${totalCost.toFixed(2)} ${targetCurrency}`);
-        } else {
-            // Backend'den exchange rate data yoksa fallback kullan
-            console.log('FastChecker: No backend exchange data, using fallback rates');
-            useFallbackConversion(euPrice, shippingCost, marketplace, costInput);
-        }
-        
-    } catch (error) {
-        console.error('FastChecker: Backend conversion error:', error);
-        useFallbackConversion(euPrice, shippingCost, marketplace, costInput);
-    }
-}
-
-// Fallback conversion function
-function useFallbackConversion(euPrice, shippingCost, marketplace, costInput) {
-    // Fallback: Sabit conversion rate kullan
-    const fallbackRate = marketplace === 'US' ? 1.1 : 1.35; // USD: 1.1, CAD: 1.35
-    const convertedEuPrice = euPrice * fallbackRate;
-    const totalCost = (convertedEuPrice + shippingCost) * 1.17;
-    
-    costInput.value = totalCost.toFixed(2);
-    const event = new Event('input', { bubbles: true });
-    costInput.dispatchEvent(event);
-    
-    console.log(`FastChecker: Using fallback conversion rate: ${fallbackRate} for ${marketplace}`);
-}
 
 // --- Orijinal Fonksiyonlar ---
 function formatCurrency(amount, currency) {
@@ -506,7 +497,7 @@ function updateUI(container, data, error = null) {
     const bsrInput = mainView.querySelector('#bsrInput');
     if (bsrInput) { const percentageString = calculateBsrPercentage(bsrNumber, categoryName, data.bsr_data); bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`; }
 
-    const costInput = mainView.querySelector('#costInput'); const saleInput = mainView.querySelector('#saleInput');
+    const costInput = mainView.querySelector('#costInput'); const saleInput = mainVew.querySelector('#saleInput');
     const profitResult = mainView.querySelector('#profitResult'); const roiResult = mainView.querySelector('#roiResult'); const breakevenResult = mainView.querySelector('#breakevenResult');
     let referralFeePercentage = (data.buyboxPrice && data.referralFee) ? (data.referralFee / data.buyboxPrice) : 0;
     function formatInput(inputElement) { let value = inputElement.value; if (value && !value.includes('.')) inputElement.value = parseFloat(value).toFixed(2); }
