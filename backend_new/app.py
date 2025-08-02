@@ -2,7 +2,8 @@ import os
 import json
 import logging
 import traceback
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
@@ -30,6 +31,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# --- Exchange Rate Configuration ---
+SUPPORTED_CURRENCIES = ['EUR', 'USD', 'GBP', 'CAD']
+EXCHANGE_RATE_API_BASE = "https://v6.exchangerate-api.com/v6"
+
+# Exchange rate cache
+exchange_rates_cache = {
+    'rates': {},
+    'last_update': None,
+    'cache_duration': 24 * 60 * 60  # 24 hours in seconds
+}
+
 # --- Marketplace Configuration ---
 MARKETPLACE_REGIONS = {
     # North America (NA) - Same credentials, different domains
@@ -49,6 +61,130 @@ MARKETPLACE_REGIONS = {
     'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
 }
 
+# --- Exchange Rate Functions ---
+def is_cache_expired():
+    """Check if exchange rate cache has expired"""
+    if not exchange_rates_cache['last_update']:
+        return True
+    
+    time_since_update = datetime.now() - exchange_rates_cache['last_update']
+    return time_since_update.total_seconds() > exchange_rates_cache['cache_duration']
+
+def fetch_all_exchange_rates():
+    """Fetch all exchange rates from API and update cache"""
+    logger.info("🔄 Fetching fresh exchange rates from API...")
+    
+    # Get API key from environment
+    api_key = os.environ.get('EXCHANGE_RATE_API_KEY')
+    if not api_key:
+        logger.error("❌ EXCHANGE_RATE_API_KEY not found in environment variables")
+        return False
+    
+    new_rates = {}
+    failed_requests = 0
+    
+    # Fetch rates for all currency pairs
+    for base_currency in SUPPORTED_CURRENCIES:
+        for target_currency in SUPPORTED_CURRENCIES:
+            if base_currency == target_currency:
+                continue
+                
+            try:
+                url = f"{EXCHANGE_RATE_API_BASE}/{api_key}/pair/{base_currency}/{target_currency}"
+                logger.info(f"📡 Fetching {base_currency} -> {target_currency}")
+                
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                if data.get('result') == 'success':
+                    rate_key = f"{base_currency}_{target_currency}"
+                    new_rates[rate_key] = {
+                        'rate': data['conversion_rate'],
+                        'last_update': data.get('time_last_update_utc'),
+                        'next_update': data.get('time_next_update_utc')
+                    }
+                    logger.info(f"✅ {base_currency}/{target_currency}: {data['conversion_rate']}")
+                else:
+                    logger.error(f"❌ API Error for {base_currency}/{target_currency}: {data.get('error-type', 'Unknown error')}")
+                    failed_requests += 1
+                    
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ Network error fetching {base_currency}/{target_currency}: {str(e)}")
+                failed_requests += 1
+            except Exception as e:
+                logger.error(f"❌ Unexpected error fetching {base_currency}/{target_currency}: {str(e)}")
+                failed_requests += 1
+    
+    # Update cache if we got at least some rates
+    if new_rates and failed_requests < len(new_rates):
+        exchange_rates_cache['rates'] = new_rates
+        exchange_rates_cache['last_update'] = datetime.now()
+        logger.info(f"✅ Exchange rates updated successfully! {len(new_rates)} rates cached, {failed_requests} failed")
+        return True
+    else:
+        logger.error(f"❌ Failed to fetch exchange rates. {failed_requests} failures out of {len(SUPPORTED_CURRENCIES) * (len(SUPPORTED_CURRENCIES) - 1)} attempts")
+        return False
+
+def get_exchange_rate(from_currency, to_currency):
+    """Get exchange rate from cache, refresh if needed"""
+    if from_currency == to_currency:
+        return 1.0
+    
+    # Check if cache needs refresh
+    if is_cache_expired():
+        logger.info("💱 Exchange rate cache expired, refreshing...")
+        fetch_all_exchange_rates()
+    
+    # Get rate from cache
+    rate_key = f"{from_currency}_{to_currency}"
+    rate_info = exchange_rates_cache['rates'].get(rate_key)
+    
+    if rate_info:
+        return rate_info['rate']
+    else:
+        logger.warning(f"⚠️ No exchange rate found for {from_currency} -> {to_currency}")
+        return None
+
+def convert_currency(amount, from_currency, to_currency):
+    """Convert amount from one currency to another"""
+    if not amount or from_currency == to_currency:
+        return amount
+    
+    rate = get_exchange_rate(from_currency, to_currency)
+    if rate:
+        converted = float(amount) * rate
+        logger.info(f"💰 Converted {amount} {from_currency} -> {converted:.2f} {to_currency} (rate: {rate})")
+        return round(converted, 2)
+    else:
+        logger.warning(f"⚠️ Could not convert {amount} from {from_currency} to {to_currency}")
+        return None
+
+def get_converted_prices(original_amount, original_currency):
+    """Get prices converted to all supported currencies"""
+    if not original_amount:
+        return {}
+    
+    converted_prices = {}
+    for target_currency in SUPPORTED_CURRENCIES:
+        if target_currency != original_currency:
+            converted_price = convert_currency(original_amount, original_currency, target_currency)
+            if converted_price is not None:
+                converted_prices[target_currency] = converted_price
+    
+    return converted_prices
+
+def get_exchange_rates_for_currency(base_currency):
+    """Get all exchange rates for a base currency"""
+    rates = {}
+    for target_currency in SUPPORTED_CURRENCIES:
+        if target_currency != base_currency:
+            rate = get_exchange_rate(base_currency, target_currency)
+            if rate is not None:
+                rates[f"{base_currency}_{target_currency}"] = rate
+    return rates
+
 # --- Load BSR Data with Logging ---
 logger.info("=== APPLICATION STARTUP ===")
 logger.info("Loading BSR tables from SellerAmp...")
@@ -62,6 +198,13 @@ except Exception as e:
     logger.error(f"Error loading BSR tables: {str(e)}")
     logger.error(traceback.format_exc())
     BSR_TABLES = {'US': {}, 'CA': {}}
+
+# --- Load Exchange Rates on Startup ---
+logger.info("Loading initial exchange rates...")
+if os.environ.get('EXCHANGE_RATE_API_KEY'):
+    fetch_all_exchange_rates()
+else:
+    logger.warning("⚠️ EXCHANGE_RATE_API_KEY not found. Currency conversion will be disabled.")
 
 # --- Load Credentials from Environment Variables ---
 logger.info("Loading credentials from environment variables...")
@@ -118,6 +261,8 @@ except KeyError as e:
     logger.error("- EU_LWA_APP_ID")
     logger.error("- EU_LWA_CLIENT_SECRET")
     logger.error("- EU_SELLER_ID")
+    logger.error("Optional environment variables for currency conversion:")
+    logger.error("- EXCHANGE_RATE_API_KEY")
     na_credentials = None
     eu_credentials = None
     na_seller_id = None
@@ -356,6 +501,39 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.info("ℹ️ No price available for fee calculation, skipping.")
             result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
 
+        # 7. Currency Conversion (NEW FEATURE)
+        logger.info("💱 Step 7: Adding currency conversion data...")
+        try:
+            if buybox_price and currency_code and currency_code in SUPPORTED_CURRENCIES:
+                # Add converted prices
+                result_data['originalCurrency'] = currency_code
+                result_data['originalPrice'] = buybox_price
+                result_data['convertedPrices'] = get_converted_prices(buybox_price, currency_code)
+                result_data['exchangeRates'] = get_exchange_rates_for_currency(currency_code)
+                result_data['lastExchangeRateUpdate'] = exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None
+                
+                # Also convert fees if available
+                if result_data.get('totalFees'):
+                    result_data['convertedTotalFees'] = get_converted_prices(result_data['totalFees'], currency_code)
+                if result_data.get('netProfit'):
+                    result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
+                
+                logger.info(f"✅ Currency conversion added. Base: {currency_code}, Converted to: {list(result_data['convertedPrices'].keys())}")
+            else:
+                logger.info(f"ℹ️ Currency conversion skipped. Price: {buybox_price}, Currency: {currency_code}")
+                result_data['originalCurrency'] = currency_code
+                result_data['originalPrice'] = buybox_price
+                result_data['convertedPrices'] = {}
+                result_data['exchangeRates'] = {}
+                result_data['lastExchangeRateUpdate'] = None
+                
+        except Exception as e:
+            logger.error(f"❌ Error in currency conversion: {str(e)}")
+            logger.error(traceback.format_exc())
+            result_data['convertedPrices'] = {}
+            result_data['exchangeRates'] = {}
+            result_data['lastExchangeRateUpdate'] = None
+
         logger.info("✅ Product details fetched successfully")
         return result_data
 
@@ -380,7 +558,14 @@ def health_check():
         "credentials_loaded": bool(na_credentials),
         "eu_credentials_loaded": bool(eu_credentials),
         "bsr_tables_loaded": bool(BSR_TABLES.get('US')) and bool(BSR_TABLES.get('CA')),
-        "supported_marketplaces": list(MARKETPLACE_REGIONS.keys())
+        "supported_marketplaces": list(MARKETPLACE_REGIONS.keys()),
+        "exchange_rate_enabled": bool(os.environ.get('EXCHANGE_RATE_API_KEY')),
+        "exchange_rate_cache_status": {
+            "last_update": exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None,
+            "cached_pairs": len(exchange_rates_cache['rates']),
+            "supported_currencies": SUPPORTED_CURRENCIES,
+            "cache_expired": is_cache_expired()
+        }
     })
 
 @app.route('/get_product_details/<string:asin>', methods=['GET'])
@@ -414,6 +599,80 @@ def api_get_product_details(asin):
         
     except Exception as e:
         logger.error(f"❌ Unexpected error in API endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route('/exchange_rates', methods=['GET'])
+def api_get_exchange_rates():
+    """Get current exchange rates"""
+    logger.info("Exchange rates API request received")
+    
+    if not os.environ.get('EXCHANGE_RATE_API_KEY'):
+        return jsonify({"error": "Exchange rate API not configured"}), 503
+    
+    try:
+        # Refresh rates if expired
+        if is_cache_expired():
+            logger.info("Cache expired, refreshing exchange rates...")
+            success = fetch_all_exchange_rates()
+            if not success:
+                logger.warning("Failed to refresh exchange rates, using cached data")
+        
+        return jsonify({
+            "status": "success",
+            "supported_currencies": SUPPORTED_CURRENCIES,
+            "exchange_rates": exchange_rates_cache['rates'],
+            "last_update": exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None,
+            "cache_expired": is_cache_expired(),
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in exchange rates endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route('/convert', methods=['GET'])
+def api_convert_currency():
+    """Convert currency amount"""
+    logger.info("Currency conversion API request received")
+    
+    if not os.environ.get('EXCHANGE_RATE_API_KEY'):
+        return jsonify({"error": "Exchange rate API not configured"}), 503
+    
+    try:
+        # Get parameters
+        amount = request.args.get('amount', type=float)
+        from_currency = request.args.get('from', '').upper()
+        to_currency = request.args.get('to', '').upper()
+        
+        # Validate parameters
+        if not amount:
+            return jsonify({"error": "Amount parameter is required"}), 400
+        if not from_currency or from_currency not in SUPPORTED_CURRENCIES:
+            return jsonify({"error": f"Invalid 'from' currency. Supported: {SUPPORTED_CURRENCIES}"}), 400
+        if not to_currency or to_currency not in SUPPORTED_CURRENCIES:
+            return jsonify({"error": f"Invalid 'to' currency. Supported: {SUPPORTED_CURRENCIES}"}), 400
+        
+        # Convert currency
+        converted_amount = convert_currency(amount, from_currency, to_currency)
+        exchange_rate = get_exchange_rate(from_currency, to_currency)
+        
+        if converted_amount is None or exchange_rate is None:
+            return jsonify({"error": f"Could not convert from {from_currency} to {to_currency}"}), 500
+        
+        return jsonify({
+            "status": "success",
+            "original_amount": amount,
+            "original_currency": from_currency,
+            "converted_amount": converted_amount,
+            "target_currency": to_currency,
+            "exchange_rate": exchange_rate,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in currency conversion endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
