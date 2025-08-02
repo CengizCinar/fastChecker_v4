@@ -497,7 +497,7 @@ function updateUI(container, data, error = null) {
     const bsrInput = mainView.querySelector('#bsrInput');
     if (bsrInput) { const percentageString = calculateBsrPercentage(bsrNumber, categoryName, data.bsr_data); bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`; }
 
-    const costInput = mainView.querySelector('#costInput'); const saleInput = mainVew.querySelector('#saleInput');
+    const costInput = mainView.querySelector('#costInput'); const saleInput = mainView.querySelector('#saleInput');
     const profitResult = mainView.querySelector('#profitResult'); const roiResult = mainView.querySelector('#roiResult'); const breakevenResult = mainView.querySelector('#breakevenResult');
     let referralFeePercentage = (data.buyboxPrice && data.referralFee) ? (data.referralFee / data.buyboxPrice) : 0;
     function formatInput(inputElement) { let value = inputElement.value; if (value && !value.includes('.')) inputElement.value = parseFloat(value).toFixed(2); }
