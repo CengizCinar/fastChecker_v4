@@ -277,17 +277,84 @@ function calculateAndDisplayShipping() {
     });
 }
 
+// GÜNCELLENMİŞ: Backend'den gelen converted prices kullanarak cost hesaplama
 function updateCostInput() {
-    if (calculatedCostPerItem !== null && lowestEuPrice !== null) {
+    const currentMarketplace = detectMarketplace();
+    const isAutoCostEnabled = ['US', 'CA'].includes(currentMarketplace);
+    
+    console.log(`FastChecker: updateCostInput called - Marketplace: ${currentMarketplace}, Auto Cost: ${isAutoCostEnabled}`);
+    
+    if (isAutoCostEnabled && calculatedCostPerItem !== null && lowestEuPrice !== null) {
         const costInput = document.getElementById('costInput');
         if (costInput) {
-            const totalCost = (lowestEuPrice + calculatedCostPerItem) * 1.17;
+            // Backend'den gelen converted prices kullan
+            calculateCostWithBackendData(lowestEuPrice, calculatedCostPerItem, currentMarketplace, costInput);
+        }
+    } else if (!isAutoCostEnabled) {
+        console.log(`FastChecker: Auto cost disabled for marketplace: ${currentMarketplace}`);
+    }
+}
+
+// YENİ: Backend'den gelen exchange rate data ile cost hesaplama
+function calculateCostWithBackendData(euPrice, shippingCost, marketplace, costInput) {
+    try {
+        // Marketplace'e göre target currency belirle
+        const targetCurrency = marketplace === 'US' ? 'USD' : 'CAD';
+        
+        console.log(`FastChecker: Using backend converted prices for ${euPrice} EUR to ${targetCurrency}...`);
+        
+        // ProductData'dan converted prices al
+        let convertedEuPrice = null;
+        
+        if (productData.convertedPrices && productData.convertedPrices[targetCurrency]) {
+            // Backend'den gelen converted price varsa kullan
+            const originalPrice = productData.originalPrice || euPrice;
+            const conversionRate = productData.convertedPrices[targetCurrency] / originalPrice;
+            convertedEuPrice = euPrice * conversionRate;
+            
+            console.log(`FastChecker: Using backend conversion rate: ${conversionRate} for ${targetCurrency}`);
+        } else if (productData.exchangeRates && productData.exchangeRates[`EUR_${targetCurrency}`]) {
+            // Exchange rate var ama converted price yoksa, rate'i kullan
+            const exchangeRate = productData.exchangeRates[`EUR_${targetCurrency}`];
+            convertedEuPrice = euPrice * exchangeRate;
+            
+            console.log(`FastChecker: Using backend exchange rate: ${exchangeRate} for EUR_${targetCurrency}`);
+        }
+        
+        if (convertedEuPrice !== null) {
+            const totalCost = (convertedEuPrice + shippingCost) * 1.17; // 17% markup
+            
             costInput.value = totalCost.toFixed(2);
+            
             // Manuel olarak bir input olayı tetikle
             const event = new Event('input', { bubbles: true });
             costInput.dispatchEvent(event);
+            
+            console.log(`FastChecker: Backend conversion - EU Price: ${euPrice} EUR → ${convertedEuPrice.toFixed(2)} ${targetCurrency}, Total: ${totalCost.toFixed(2)} ${targetCurrency}`);
+        } else {
+            // Backend'den exchange rate data yoksa fallback kullan
+            console.log('FastChecker: No backend exchange data, using fallback rates');
+            useFallbackConversion(euPrice, shippingCost, marketplace, costInput);
         }
+        
+    } catch (error) {
+        console.error('FastChecker: Backend conversion error:', error);
+        useFallbackConversion(euPrice, shippingCost, marketplace, costInput);
     }
+}
+
+// Fallback conversion function
+function useFallbackConversion(euPrice, shippingCost, marketplace, costInput) {
+    // Fallback: Sabit conversion rate kullan
+    const fallbackRate = marketplace === 'US' ? 1.1 : 1.35; // USD: 1.1, CAD: 1.35
+    const convertedEuPrice = euPrice * fallbackRate;
+    const totalCost = (convertedEuPrice + shippingCost) * 1.17;
+    
+    costInput.value = totalCost.toFixed(2);
+    const event = new Event('input', { bubbles: true });
+    costInput.dispatchEvent(event);
+    
+    console.log(`FastChecker: Using fallback conversion rate: ${fallbackRate} for ${marketplace}`);
 }
 
 // --- Orijinal Fonksiyonlar ---
@@ -331,6 +398,16 @@ function updateUI(container, data, error = null) {
     const defaultCurrency = data.currencyCode || 'USD';
     const sellableStatus = data.isSellable ? '<span class="fc-status fc-sellable">SATILABİLİR</span>' : '<span class="fc-status fc-not-sellable">ONAY GEREKLİ</span>';
 
+    // Exchange rate bilgilerini loglayalım
+    if (data.convertedPrices || data.exchangeRates) {
+        console.log('FastChecker: Exchange rate data received:', {
+            originalCurrency: data.originalCurrency,
+            convertedPrices: data.convertedPrices,
+            exchangeRates: data.exchangeRates,
+            lastUpdate: data.lastExchangeRateUpdate
+        });
+    }
+
     let sellersHtml = offers.map(offer => {
         const sellerId = offer.SellerId || 'N/A';
         const sellerLink = `https://www.amazon.com/sp?ie=UTF8&seller=${sellerId}`;
@@ -346,8 +423,18 @@ function updateUI(container, data, error = null) {
     `}).join('');
     if (!sellersHtml) sellersHtml = '<div class="fc-no-seller">Aktif teklif yok.</div>';
 
+    // Currency conversion bilgisini header'a ekleyelim
+    let currencyInfoHtml = '';
+    if (data.convertedPrices && Object.keys(data.convertedPrices).length > 0) {
+        const conversions = Object.entries(data.convertedPrices)
+            .map(([currency, amount]) => `${formatCurrency(amount, currency)}`)
+            .join(' | ');
+        currencyInfoHtml = `<div class="fc-currency-info">💱 ${conversions}</div>`;
+    }
+
     mainView.innerHTML = `
         <div class="fc-header"><span>✨ FastChecker AI Analysis</span><span class="fc-settings-icon">⚙️</span></div>
+        ${currencyInfoHtml}
         <div class="fc-card fc-main-info">
              <div class="fc-main-info-3col">
                 <div class="fc-main-col fc-main-img"><img class="fc-main-info-img" src="${data.imageUrl || ''}" alt="${data.title || ''}"></div>
