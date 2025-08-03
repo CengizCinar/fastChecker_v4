@@ -11,6 +11,19 @@ function getAsinFromUrl() {
     return match ? match[1] : null;
 }
 
+function getMarketplaceFromUrl() {
+    const hostname = window.location.hostname;
+    const match = hostname.match(/amazon\.(.+)$/);
+    if (match && match[1]) {
+        const tld = match[1];
+        if (tld.startsWith('co.')) {
+            return tld.split('.')[1].toUpperCase();
+        }
+        return tld.split('.')[0].toUpperCase();
+    }
+    return 'US'; // Varsayılan
+}
+
 // --- GÜNCELLENMİŞ UI OLUŞTURMA FONKSİYONU ---
 function createUIContainer() {
     const existingUI = document.getElementById('fastchecker-product-ui');
@@ -448,22 +461,27 @@ chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListen
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
+    const marketplace = getMarketplaceFromUrl();
     const container = createUIContainer();
     if (!container) return;
 
-    fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=US`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) {
-                updateUI(container, {}, data.error);
+    // Arka plana ASIN ve marketplace bilgisini gönder
+    chrome.runtime.sendMessage({
+        action: 'fetchProductDetails',
+        asin: asin,
+        marketplace: marketplace
+    });
+    
+    // Gelen veriyi dinle
+    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+        if (request.action === "displayProductDetails" && request.asin === asin) {
+            if (request.data.error) {
+                updateUI(container, {}, request.data.error);
             } else {
-                updateUI(container, data);
+                updateUI(container, request.data);
             }
-        })
-        .catch(e => {
-            console.error('FastChecker: Başlangıç verisi çekilemedi.', e);
-            updateUI(container, {}, e.message);
-        });
+        }
+    });
 
     renderEuMarketPrices(container, asin, []);
     chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
