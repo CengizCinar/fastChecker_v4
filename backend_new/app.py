@@ -525,49 +525,55 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.info(f"Product: {result_data['title'][:50]}...")
             logger.info(f"Brand: {result_data['brand']}")
             
-            # ENHANCED: Extract BSR information from attributes
-            attributes_data = catalog_response_attributes.payload.get('attributes', {})
-            bsr_info = extract_bsr_from_attributes(attributes_data)
+            # 1.a BSR Bilgisini Doğru Yerden Çekme ve İşleme
+            logger.info("🔍 Step 1a: Extracting and analyzing Sales Ranks (BSR)...")
+            bsr_info = {}
             
-            # ENHANCED: Extract category from product types
+            # API yanıtının ana seviyesindeki 'salesRanks' listesini al
+            sales_ranks_data = catalog_response_attributes.payload.get('salesRanks', [])
+
+            if sales_ranks_data:
+                all_ranks = []
+                # Ürün birden fazla kategoride listelenebilir. Hepsini topla.
+                # 'displayGroupRanks' genellikle web sitesinde gördüğünüz sıralamadır.
+                for rank_group in sales_ranks_data:
+                    if 'displayGroupRanks' in rank_group:
+                        for rank_item in rank_group['displayGroupRanks']:
+                            if 'rank' in rank_item and 'title' in rank_item:
+                                all_ranks.append({
+                                    'rank': int(rank_item['rank']),
+                                    'category': rank_item['title']
+                                })
+
+                # En iyi (en düşük) rank'i birincil BSR olarak seç
+                if all_ranks:
+                    best_rank_info = min(all_ranks, key=lambda x: x['rank'])
+                    bsr_info = best_rank_info
+                    logger.info(f"🏆 Best BSR Found: #{bsr_info['rank']} in '{bsr_info['category']}'")
+
+            result_data['bsr_info'] = bsr_info if bsr_info else None
+
+            # 1.b Kategori Bilgisini 'productTypes'tan Çekme
             product_types = catalog_response_attributes.payload.get('productTypes', [])
             category_from_product_types = None
-            if product_types:
-                category_from_product_types = product_types[0].get('displayName', 'Unknown')
+            if product_types and product_types[0].get('displayName'):
+                category_from_product_types = product_types[0]['displayName']
                 logger.info(f"📂 Product Type Category: {category_from_product_types}")
             
-            # ENHANCED: Extract sales ranks (alternative BSR source)
-            sales_ranks = catalog_response_attributes.payload.get('salesRanks', [])
-            if sales_ranks and not bsr_info:
-                for rank_item in sales_ranks:
-                    if isinstance(rank_item, dict):
-                        rank = rank_item.get('rank')
-                        category = rank_item.get('displayName', 'Unknown Category')
-                        
-                        if rank:
-                            bsr_info = {
-                                'rank': int(rank),
-                                'category': category
-                            }
-                            logger.info(f"🏆 Sales Rank Found: #{rank} in {category}")
-                            break
-            
-            result_data['bsr_info'] = bsr_info
             result_data['category_from_api'] = category_from_product_types
-            
-            # ENHANCED: BSR Analysis with BSR Table
-            if bsr_info and bsr_info.get('rank'):
-                bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
+
+            # 1.c Gelişmiş BSR Analizi
+            if bsr_info and 'rank' in bsr_info:
+                bsr_data_for_marketplace = get_bsr_data().get(marketplace_str.upper(), {})
                 
-                # Try to match Amazon category to BSR table
+                # BSR kategorisini veya ürün tipi kategorisini kullanarak eşleştirme yap
+                amazon_category_to_match = bsr_info.get('category') or category_from_product_types
                 matched_category = None
-                if bsr_info.get('category'):
-                    matched_category = match_category_to_bsr_table(bsr_info['category'], bsr_data)
-                elif category_from_product_types:
-                    matched_category = match_category_to_bsr_table(category_from_product_types, bsr_data)
+                if amazon_category_to_match:
+                    matched_category = match_category_to_bsr_table(amazon_category_to_match, bsr_data_for_marketplace)
                 
-                if matched_category and matched_category in bsr_data:
-                    bsr_category_data = bsr_data[matched_category]
+                if matched_category:
+                    bsr_category_data = bsr_data_for_marketplace[matched_category]
                     bsr_percentage = calculate_bsr_percentage(bsr_info['rank'], bsr_category_data)
                     
                     result_data['bsr_analysis'] = {
@@ -575,25 +581,21 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                         'bsr_percentage': bsr_percentage,
                         'enhanced_display': bsr_percentage['display'] if bsr_percentage else f"#{bsr_info['rank']} (Unknown %)"
                     }
-                    
-                    logger.info(f"🎯 BSR Analysis Complete:")
-                    logger.info(f"   Original Category: {bsr_info.get('category', 'N/A')}")
-                    logger.info(f"   Matched BSR Category: {matched_category}")
-                    logger.info(f"   BSR Display: {bsr_percentage['display'] if bsr_percentage else 'Unknown %'}")
+                    logger.info(f"🎯 BSR Analysis: Matched to '{matched_category}', Result: {result_data['bsr_analysis']['enhanced_display']}")
                 else:
                     result_data['bsr_analysis'] = {
                         'matched_category': None,
                         'bsr_percentage': None,
-                        'enhanced_display': f"#{bsr_info['rank']} (Category not found)"
+                        'enhanced_display': f"#{bsr_info['rank']} (Category not in BSR table)"
                     }
-                    logger.warning(f"⚠️ BSR Category '{bsr_info.get('category', 'N/A')}' not found in BSR table")
+                    logger.warning(f"⚠️ BSR Category '{amazon_category_to_match}' not found in BSR table for {marketplace_str.upper()}")
             else:
                 result_data['bsr_analysis'] = {
                     'matched_category': None,
                     'bsr_percentage': None,
                     'enhanced_display': "BSR not available"
                 }
-                logger.info("ℹ️ No BSR information found from Amazon SP-API")
+                logger.info("ℹ️ No BSR information found from Amazon SP-API.")
             
         except Exception as e:
             logger.error(f"❌ Error in catalog attributes: {str(e)}")
