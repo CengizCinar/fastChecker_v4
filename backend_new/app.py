@@ -184,7 +184,16 @@ def get_exchange_rates_for_currency(base_currency):
             if rate is not None:
                 rates[f"{base_currency}_{target_currency}"] = rate
     return rates
-
+def get_bsr_data():
+    """Get BSR data, refresh if needed"""
+    # İlk kez çağrılıyorsa BSR_TABLES'ı döndür
+    if BSR_TABLES:
+        logger.info("💾 BSR Data Source: STARTUP CACHE (loaded at application start)")
+        return BSR_TABLES
+    else:
+        logger.info("❌ BSR Data Source: NO DATA AVAILABLE")
+        return {}
+    
 # --- Load BSR Data with Logging ---
 logger.info("=== APPLICATION STARTUP ===")
 logger.info("Loading BSR tables from SellerAmp...")
