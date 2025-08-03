@@ -475,6 +475,49 @@ def get_credentials_for_marketplace(marketplace_str):
         return eu_credentials, eu_seller_id, None
     else:
         return None, None, f"Unknown region: {region}"
+    
+def get_root_category_from_classifications(asin: str, marketplace_str: str, credentials) -> str | None:
+    """
+    Bir ASIN'in resmi Amazon ana (root) kategorisini 'classifications' endpoint'ini kullanarak alır.
+    Bu, BSR eşleştirmesi için en güvenilir yöntemdir.
+    """
+    logger.info(f"Fetching root category for ASIN {asin} using classifications API...")
+    try:
+        marketplace = getattr(Marketplaces, marketplace_str.upper())
+        catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
+
+        # searchCatalogItems, ASIN ile arama yaparken de kullanılabilir.
+        response = catalog_api.search_catalog_items(
+            keywords=asin,
+            marketplaceIds=[marketplace.marketplace_id],
+            includedData=['classifications']
+        )
+
+        # Yanıttan doğru ürünü ve sınıflandırmaları bul
+        items = response.payload.get('items', [])
+        if not items:
+            logger.warning("Classifications API returned no items.")
+            return None
+
+        # Genellikle ASIN ile aratınca ilk ürün doğrudur.
+        item = items[0]
+        classifications = item.get('classifications', [])
+
+        if classifications:
+            # Listenin ilk elemanı her zaman ana kategoridir.
+            root_category_name = classifications[0].get('displayName')
+            logger.info(f"✅ Found root category via Classifications API: '{root_category_name}'")
+            return root_category_name
+        else:
+            logger.warning("No classifications found in the API response.")
+            return None
+
+    except SellingApiException as e:
+        logger.error(f"API Error while fetching classifications: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error in get_root_category_from_classifications: {e}")
+        return None    
 
 # --- Main Function to Get Product Details ---
 def get_full_product_details_as_json(asin: str, marketplace_str: str):
@@ -636,27 +679,46 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         except Exception as e:
             logger.error(f"❌ Error fetching or processing offers: {str(e)}")
 
-        # 4. Gelişmiş BSR Analizi
-        logger.info("🎯 Step 4: Performing BSR Analysis...")
+        # 4. Gelişmiş BSR Analizi (Ana Kategori Bulma ile Güçlendirildi)
+        logger.info("🎯 Step 4: Performing BSR Analysis with Root Category...")
         if result_data.get('bsr_info'):
             current_bsr_info = result_data['bsr_info']
-            bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
             
-            category_to_match = result_data.get('category_from_api') or current_bsr_info['category']
-            matched_category = match_category_to_bsr_table(category_to_match, bsr_data)
-            logger.info(f"Attempting to match BSR category. Using name: '{category_to_match}'")
-            
-            if matched_category:
-                bsr_percentage = calculate_bsr_percentage(current_bsr_info['rank'], bsr_data[matched_category])
-                result_data['bsr_analysis'] = {
-                    'matched_category': matched_category,
-                    'bsr_percentage': bsr_percentage,
-                    'enhanced_display': bsr_percentage['display']
-                }
-                logger.info(f"✅ BSR Analysis Complete: {bsr_percentage['display']}")
+            # --- En Güvenilir Ana Kategori Adını Bulma Stratejisi ---
+            # 1. ÖNCELİK: Classifications API'sini dene.
+            best_category_name = get_root_category_from_classifications(asin, marketplace_str, credentials)
+
+            # 2. ÖNCELİK (Fallback): Eğer Classifications API'si çalışmazsa, Offers API'sinden gelen BSR kategori adını kullan.
+            if not best_category_name:
+                logger.warning("Could not get root category from Classifications API. Falling back to category from SalesRankings.")
+                best_category_name = current_bsr_info.get('category')
+
+            # 3. ÖNCELİK (Son Çare): O da yoksa, Catalog API'sinden gelen ürün tipi adını kullan.
+            if not best_category_name:
+                 logger.warning("Falling back to category from ProductTypes.")
+                 best_category_name = result_data.get('category_from_api')
+            # --- Strateji Sonu ---
+
+            logger.info(f"Using '{best_category_name}' for BSR analysis matching.")
+
+            if best_category_name:
+                bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
+                matched_category = match_category_to_bsr_table(best_category_name, bsr_data)
+                
+                if matched_category:
+                    bsr_percentage = calculate_bsr_percentage(current_bsr_info['rank'], bsr_data[matched_category])
+                    result_data['bsr_analysis'] = {
+                        'matched_category': matched_category,
+                        'bsr_percentage': bsr_percentage,
+                        'enhanced_display': bsr_percentage['display']
+                    }
+                    logger.info(f"✅ BSR Analysis Complete: {bsr_percentage['display']} in matched category '{matched_category}'")
+                else:
+                    result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Category '{best_category_name}' not in BSR table)"}
+                    logger.warning(f"⚠️ BSR Category '{best_category_name}' not found in BSR table")
             else:
-                result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Category not in BSR table)"}
-                logger.warning(f"⚠️ BSR Category '{category_to_match}' not found in BSR table")
+                 result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Could not determine category)"}
+
         else:
             result_data['bsr_analysis'] = {'enhanced_display': "BSR not available"}
             logger.info("ℹ️ No BSR information found from Offers API.")
