@@ -5,7 +5,7 @@ let productData = {}; // Gelen ürün verisini globalde tutmak için
 let calculatedCostPerItem = null;
 let lowestEuPrice = null;
 
-// --- Orijinal Fonksiyonlar ---
+// --- Temel Yardımcı Fonksiyonlar ---
 function getAsinFromUrl() {
     const match = window.location.pathname.match(/\/dp\/([A-Z0-9]{10})/);
     return match ? match[1] : null;
@@ -13,18 +13,29 @@ function getAsinFromUrl() {
 
 function getMarketplaceFromUrl() {
     const hostname = window.location.hostname;
-    const match = hostname.match(/amazon\.(.+)$/);
-    if (match && match[1]) {
-        const tld = match[1];
-        if (tld.startsWith('co.')) {
-            return tld.split('.')[1].toUpperCase();
+    const tldMap = {
+        'amazon.com': 'US',
+        'amazon.ca': 'CA',
+        'amazon.com.mx': 'MX',
+        'amazon.co.uk': 'GB',
+        'amazon.de': 'DE',
+        'amazon.fr': 'FR',
+        'amazon.it': 'IT',
+        'amazon.es': 'ES',
+        'amazon.nl': 'NL',
+        'amazon.se': 'SE',
+        'amazon.pl': 'PL',
+        'amazon.be': 'BE'
+    };
+    for (const domain in tldMap) {
+        if (hostname.endsWith(domain)) {
+            return tldMap[domain];
         }
-        return tld.split('.')[0].toUpperCase();
     }
     return 'US'; // Varsayılan
 }
 
-// --- GÜNCELLENMİŞ UI OLUŞTURMA FONKSİYONU ---
+// --- UI OLUŞTURMA ---
 function createUIContainer() {
     const existingUI = document.getElementById('fastchecker-product-ui');
     if (existingUI) {
@@ -36,7 +47,7 @@ function createUIContainer() {
         <div id="fc-main-view">
             <div class="fc-loading">✨ FastChecker AI verileri analiz ediyor...</div>
         </div>
-        <div id="fc-settings-view" class="fc-settings-view"></div>
+        <div id="fc-settings-view" class="fc-settings-view" style="display:none;"></div>
     `;
     const rightCol = document.getElementById('rightCol');
     if (rightCol) {
@@ -49,17 +60,12 @@ function createUIContainer() {
     return container;
 }
 
-
-// --- YENİ EKLENEN VE GÜNCELLENEN FONKSİYONLAR ---
-
-// (YENİ GÖRÜNÜM) Ayarlar sayfasının HTML'ini oluşturur ve gösterir
+// --- AYARLAR GÖRÜNÜMÜ ---
 function renderSettingsView(container) {
     const settingsView = container.querySelector('#fc-settings-view');
     chrome.storage.local.get(['shippingSettings'], (result) => {
         const settings = result.shippingSettings || {};
-        // Varsayılan currency: USD
         const currency = settings.currency || 'USD';
-        const currencySymbols = { USD: '$', EUR: '€', GBP: '£', TRY: '₺' };
         settingsView.innerHTML = `
             <div class="fc-card">
                 <div class="fc-header">
@@ -99,16 +105,14 @@ function renderSettingsView(container) {
         `;
         settingsView.querySelector('#saveSettingsBtn').addEventListener('click', saveShippingSettings);
         settingsView.querySelector('#fc-back-to-main').addEventListener('click', () => toggleView(container));
-        // Sadece rakam girişi için event
         settingsView.querySelectorAll('.fc-dimension-input').forEach(input => {
-          input.addEventListener('input', function() {
-            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);
-          });
+            input.addEventListener('input', function() {
+                this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);
+            });
         });
     });
 }
 
-// Girilen ayarları kaydeder
 function saveShippingSettings() {
     const settings = {
         pkgLength: document.getElementById('pkgLength').value,
@@ -125,7 +129,6 @@ function saveShippingSettings() {
     });
 }
 
-// Ana görünüm ve ayarlar görünümü arasında geçiş yapar
 function toggleView(container) {
     const mainView = container.querySelector('#fc-main-view');
     const settingsView = container.querySelector('#fc-settings-view');
@@ -139,15 +142,13 @@ function toggleView(container) {
     }
 }
 
-// (DÜZELTİLMİŞ) Ürün ve kargo verilerine göre hesaplama yapar
+// --- HESAPLAMA VE DÖNÜŞTÜRME FONKSİYONLARI ---
 function calculateAndDisplayShipping() {
     chrome.storage.local.get(['shippingSettings'], (result) => {
         const settings = result.shippingSettings;
         const shippingDetailsEl = document.getElementById('fc-shipping-cost-details');
         if (!shippingDetailsEl) return;
-
-        // Ayarlar veya ürün verisi eksikse hesaplama yapma
-        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !product.package_weight)) {
+        if (!settings || !settings.pkgLength || !settings.pkgCost || (!productData.dimensions && !productData.package_dimensions) || (!productData.packageWeight && !productData.package_weight)) {
             shippingDetailsEl.innerHTML = ''; return;
         }
 
@@ -156,25 +157,20 @@ function calculateAndDisplayShipping() {
         const pkgH = parseFloat(settings.pkgHeight);
         const pkgMaxWeightKg = parseFloat(settings.pkgMaxWeight);
         const pkgCost = parseFloat(settings.pkgCost);
-
         let itemL, itemW, itemH, itemWeightGr;
 
-        // **YENİ BİRİM KONTROL MANTIĞI**
-        // Öncelik: Detaylı obje (package_dimensions)
         if (productData.package_dimensions && productData.package_dimensions.length && productData.package_dimensions.width && productData.package_dimensions.height) {
             const dims = productData.package_dimensions;
             const convertToCm = (dim) => {
                 if (dim.unit && (dim.unit.toLowerCase() === 'inches' || dim.unit.toLowerCase() === 'inch')) {
                     return parseFloat(dim.value) * 2.54;
                 }
-                return parseFloat(dim.value); // Zaten cm veya birimsiz ise olduğu gibi al
+                return parseFloat(dim.value);
             };
             itemL = convertToCm(dims.length);
             itemW = convertToCm(dims.width);
             itemH = convertToCm(dims.height);
-        }
-        // Geriye dönük uyumluluk: Eski string formatı
-        else if (productData.dimensions) {
+        } else if (productData.dimensions) {
             const itemDimMatch = productData.dimensions.match(/(\d+\.?\d*)\s*x\s*(\d+\.?\d*)\s*x\s*(\d+\.?\d*)/);
             if(itemDimMatch) {
                 itemL = parseFloat(itemDimMatch[1]);
@@ -183,22 +179,18 @@ function calculateAndDisplayShipping() {
             }
         }
 
-        // Ağırlık için birim kontrolü
         if (productData.package_weight && productData.package_weight.value) {
             const weight = productData.package_weight;
             if (weight.unit && (weight.unit.toLowerCase() === 'pounds' || weight.unit.toLowerCase() === 'pound')) {
                 itemWeightGr = parseFloat(weight.value) * 453.592;
-            } else { // kilograms, grams, vs.
-                // API'nin gram yolladığı varsayılıyor, değilse buraya ek case'ler eklenebilir
+            } else {
                 itemWeightGr = parseFloat(weight.value);
             }
-        }
-        else if (productData.packageWeight) {
+        } else if (productData.packageWeight) {
              const itemWeightMatch = productData.packageWeight.match(/(\d+\.?\d*)/);
              if(itemWeightMatch) itemWeightGr = parseFloat(itemWeightMatch[1]);
         }
 
-        // Gerekli tüm değerler hesaplandı mı kontrol et
         if (!itemL || !itemW || !itemH || !itemWeightGr || !pkgL || !pkgW || !pkgH || !pkgMaxWeightKg || !pkgCost) {
             shippingDetailsEl.innerHTML = ''; return;
         }
@@ -228,20 +220,12 @@ function calculateAndDisplayShipping() {
     });
 }
 
-// Para birimi dönüştürme yardımcısı (app.py'nin formatına uygun)
 function convertCurrency(amount, from, to, rates) {
-    if (!rates || typeof rates !== 'object') return null;
-    if (from === to) return amount;
-
+    if (!rates || typeof rates !== 'object' || from === to) return amount;
     const rateKey = `${from}_${to}`;
     const inverseRateKey = `${to}_${from}`;
-
-    if (rates[rateKey]) {
-        return amount * rates[rateKey];
-    } else if (rates[inverseRateKey]) {
-        return amount / rates[inverseRateKey];
-    }
-    
+    if (rates[rateKey]) return amount * rates[rateKey];
+    if (rates[inverseRateKey]) return amount / rates[inverseRateKey];
     console.error(`FastChecker: Dönüşüm kuru bulunamadı: ${from} -> ${to}`);
     return null;
 }
@@ -250,56 +234,87 @@ function updateCostInput() {
     if (calculatedCostPerItem === null || lowestEuPrice === null || !productData.exchangeRates || !productData.currencyCode) {
         return;
     }
-
     chrome.storage.local.get(['shippingSettings'], (result) => {
         const settings = result.shippingSettings;
         if (!settings || !settings.currency) return;
 
         const shippingCostCurrency = settings.currency;
         const targetCurrency = productData.currencyCode;
-
         const lowestEuPriceConverted = convertCurrency(lowestEuPrice, 'EUR', targetCurrency, productData.exchangeRates);
         const shippingCostConverted = convertCurrency(calculatedCostPerItem, shippingCostCurrency, targetCurrency, productData.exchangeRates);
 
-        if (lowestEuPriceConverted === null || shippingCostConverted === null) {
-            console.error("FastChecker: Para birimi dönüşümü başarısız oldu. Kurları kontrol edin.");
-            return;
-        }
+        if (lowestEuPriceConverted === null || shippingCostConverted === null) return;
 
         const costInput = document.getElementById('costInput');
         if (costInput) {
             const totalCost = lowestEuPriceConverted + shippingCostConverted;
             costInput.value = totalCost.toFixed(2);
-            const event = new Event('input', { bubbles: true });
-            costInput.dispatchEvent(event);
+            costInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
     });
 }
 
-
-// --- Orijinal Fonksiyonlar ---
 function formatCurrency(amount, currency) {
-    if (typeof amount !== 'number' || isNaN(amount)) {
-        return 'N/A';
-    }
-    if (typeof currency !== 'string' || currency.length < 3) {
-        return amount.toFixed(2);
-    }
+    if (typeof amount !== 'number' || isNaN(amount)) return 'N/A';
+    if (typeof currency !== 'string' || currency.length < 3) return amount.toFixed(2);
     try {
         const options = { style: 'currency', currency: currency.toUpperCase() };
-        const locales = { 'USD': 'en-US', 'CAD': 'en-CA', 'GBP': 'en-GB', 'EUR': 'de-DE', 'AUD': 'en-AU' };
+        const locales = { 'USD': 'en-US', 'CAD': 'en-CA', 'GBP': 'en-GB', 'EUR': 'de-DE' };
         return amount.toLocaleString(locales[currency.toUpperCase()] || 'en-US', options);
     } catch (e) {
-        console.error(`formatCurrency hatası: amount=${amount}, currency=${currency}`, e);
         return `${amount.toFixed(2)} ${currency}`;
     }
 }
 
-function truncateTitle(title, maxLength = 50) {
-    if (!title || title.length <= maxLength) return title;
-    return title.substr(0, title.lastIndexOf(' ', maxLength)) + '...';
+// --- BSR ÇEKME (ÇOK DİLLİ DESTEK) ---
+function getBSRDataFromPage() {
+    const bsrKeywords = {
+        'US': ['Best Sellers Rank', 'Best-Sellers Rank'],
+        'CA': ['Best Sellers Rank', 'Best-Sellers Rank'],
+        'GB': ['Best Sellers Rank', 'Best-Sellers Rank'],
+        'DE': ['Amazon Bestseller-Rang', 'Bestseller-Rang'],
+        'FR': ["Classement des meilleures ventes d'Amazon"],
+        'IT': ["Posizione nella classifica Bestseller di Amazon"],
+        'ES': ["Clasificación en los más vendidos de Amazon"],
+    };
+    const categoryKeywords = {
+        'US': 'in', 'CA': 'in', 'GB': 'in', 'DE': 'in',
+        'FR': 'dans la boutique', 'IT': 'in', 'ES': 'en',
+    };
+
+    const currentMarketplace = getMarketplaceFromUrl();
+    const keywords = bsrKeywords[currentMarketplace] || bsrKeywords['US'];
+    const catKeyword = categoryKeywords[currentMarketplace] || 'in';
+
+    let bsrText = 'N/A', bsrNumber = null, categoryName = 'N/A';
+
+    const elements = Array.from(document.querySelectorAll('th, li, span, div'));
+    let foundElement = null;
+
+    for (const keyword of keywords) {
+        foundElement = elements.find(el => el.textContent.trim().includes(keyword));
+        if (foundElement) break;
+    }
+
+    if (foundElement) {
+        bsrText = foundElement.tagName === 'TH' ? foundElement.nextElementSibling.textContent.trim() : foundElement.textContent.trim();
+        
+        const bsrMatch = bsrText.match(/#?([\d,.]+)/);
+        if (bsrMatch) {
+            bsrNumber = parseInt(bsrMatch[1].replace(/[.,]/g, ''), 10);
+        }
+
+        const categoryRegex = new RegExp(`${catKeyword}\\s+([^\\(]+)`);
+        const categoryMatch = bsrText.match(categoryRegex);
+        if (categoryMatch && categoryMatch[1]) {
+            categoryName = categoryMatch[1].trim();
+        }
+    }
+
+    return { bsrText, bsrNumber, categoryName };
 }
 
+// --- ANA UI GÜNCELLEME ---
 function updateUI(container, data, error = null) {
     const mainView = container.querySelector('#fc-main-view');
 
@@ -310,31 +325,30 @@ function updateUI(container, data, error = null) {
     }
 
     productData = data;
-
     const offers = (data.offers || []).filter(Boolean);
     const defaultCurrency = data.currencyCode || 'USD';
     const sellableStatus = data.isSellable ? '<span class="fc-status fc-sellable">SATILABİLİR</span>' : '<span class="fc-status fc-not-sellable">ONAY GEREKLİ</span>';
-
+    
     let sellersHtml = offers.map(offer => {
         const sellerId = offer.SellerId || 'N/A';
         const sellerLink = `https://www.amazon.com/sp?ie=UTF8&seller=${sellerId}`;
         const priceAmount = offer.ListingPrice?.Amount;
-        const priceCurrency = offer.ListingPrice?.CurrencyCode || defaultCurrency;
-        const priceHtml = offer.IsBuyBoxWinner ? `<b>${formatCurrency(priceAmount, priceCurrency)}</b>` : formatCurrency(priceAmount, priceCurrency);
+        const priceHtml = offer.IsBuyBoxWinner ? `<b>${formatCurrency(priceAmount, defaultCurrency)}</b>` : formatCurrency(priceAmount, defaultCurrency);
         return `
         <div class="fc-seller-row">
             <span class="fc-seller-ffm">${offer.IsFulfilledByAmazon ? 'FBA' : 'FBM'}</span>
             <a href="${sellerLink}" target="_blank" class="fc-seller-id">${sellerId}</a>
             <span class="fc-seller-price">${priceHtml}</span>
         </div>
-    `}).join('');
+        `
+    }).join('');
     if (!sellersHtml) sellersHtml = '<div class="fc-no-seller">Aktif teklif yok.</div>';
 
     mainView.innerHTML = `
         <div class="fc-header"><span>✨ FastChecker AI Analysis</span><span class="fc-settings-icon">⚙️</span></div>
         <div class="fc-card fc-main-info">
              <div class="fc-main-info-3col">
-                <div class="fc-main-col fc-main-img"><img class="fc-main-info-img" src="${data.imageUrl || ''}" alt="${data.title || ''}"></div>
+                <div class="fc-main-col fc-main-img"><img class="fc-main-info-img" src="${data.imageUrl || ''}" alt=""></div>
                 <div class="fc-main-col fc-main-asin-ean">
                     <div class="fc-main-asin"><b>ASIN:</b> ${data.asin || 'N/A'}</div>
                     <div class="fc-main-ean"><b>EAN:</b> ${data.ean || 'N/A'}</div>
@@ -353,7 +367,7 @@ function updateUI(container, data, error = null) {
         <div class="fc-card fc-finance-calculator"> 
             <div class="fc-card-header"><span>Profit Calculator</span></div>
             <div class="fc-input-row"><div class="input-group"><label for="bsrInput">BSR</label><input type="text" id="bsrInput" value="N/A" readonly></div><div class="input-group"><label for="estimatedSalesInput">Estimated Sales</label><input type="text" id="estimatedSalesInput" value="N/A" readonly></div></div>
-            <div class="fc-input-row"><div class="input-group"><label for="costInput">Cost</label><input type="text" inputmode="decimal" pattern="[0-9]*" id="costInput" value="0" autocomplete="off" style="appearance: textfield;"></div><div class="input-group"><label for="saleInput">Sale</label><input type="text" inputmode="decimal" pattern="[0-9]*" id="saleInput" value="0" autocomplete="off" style="appearance: textfield;"></div></div>
+            <div class="fc-input-row"><div class="input-group"><label for="costInput">Cost</label><input type="text" inputmode="decimal" id="costInput" value="0"></div><div class="input-group"><label for="saleInput">Sale</label><input type="text" inputmode="decimal" id="saleInput" value="0"></div></div>
             <div class="fc-result-row"><div class="result-item"><span>Profit</span><span id="profitResult" class="calculated-value">0.00</span></div><div class="result-item"><span>R.O.I</span><span id="roiResult" class="calculated-value">0.00%</span></div><div class="result-item"><span>Breakeven</span><span id="breakevenResult" class="calculated-value">0.00</span></div></div>
             <div class="fc-fee-details">
                 <span id="referralFeeDisplay">Referral Fee: ${formatCurrency(data.referralFee, defaultCurrency)}</span>
@@ -361,74 +375,98 @@ function updateUI(container, data, error = null) {
             </div>
             <div id="fc-shipping-cost-details" class="fc-fee-details"></div>
         </div>
-        <div class="fc-card fc-sellers"><div class="fc-card-header"><span class="icon">📦</span><h4>Satıcılar (${offers.length})</h4></div><div class="fc-seller-list">${sellersHtml}</div></div>
+        <div class="fc-card fc-sellers"><div class="fc-card-header"><h4>Satıcılar (${offers.length})</h4></div><div class="fc-seller-list">${sellersHtml}</div></div>
         <div class="fc-card fc-eu-market-prices" id="fc-eu-market-prices">
-            <div class="fc-card-header">
-                <span class="icon">🇪🇺</span><h4>EU Market Fiyatları</h4>
-            </div>
-            <div class="fc-eu-prices-list" style="max-height: 120px; overflow-y: auto;">
-                <div class="fc-no-eu-price">Fiyat verisi yok.</div>
-            </div>
+            <div class="fc-card-header"><h4>🇪🇺 EU Market Fiyatları</h4></div>
+            <div class="fc-eu-prices-list"><div class="fc-no-eu-price">Fiyat verisi yok.</div></div>
         </div>
     `;
-
+    
     mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
-
-    let bsrText = 'N/A', bsrNumber = null, categoryName = 'N/A';
-    function formatBsr(num) {
-        if (isNaN(num)) return 'N/A'; if (num < 1000) return num.toString(); return `${Math.floor(num / 1000)}k`;
-    }
-    function calculateBsrPercentage(bsr, category, bsrData) {
-        if (!bsr || !category || !bsrData || !bsrData[category]) return ''; const categoryData = bsrData[category];
-        const thresholds = {'0.5%': categoryData['Top 0.5% BSR'],'1%': categoryData['Top 1% BSR'],'2%': categoryData['Top 2% BSR'],'3%': categoryData['Top 3% BSR'],'5%': categoryData['Top 5% BSR'],'10%': categoryData['Top 10% BSR'],};
-        if (bsr <= thresholds['0.5%']) return ' (0.5%)'; if (bsr <= thresholds['1%']) return ' (1%)'; if (bsr <= thresholds['2%']) return ' (2%)';
-        if (bsr <= thresholds['3%']) return ' (3%)'; if (bsr <= thresholds['5%']) return ' (5%)'; if (bsr <= thresholds['10%']) return ' (10%)'; return '';
-    }
-    const thElements = Array.from(document.querySelectorAll('th'));
-    const bsrTh = thElements.find(th => th.textContent.trim().includes('Best Sellers Rank') || th.textContent.trim().includes('Best-Sellers Rank'));
-    if (bsrTh && bsrTh.nextElementSibling) { const bsrSpan = bsrTh.nextElementSibling.querySelector('span'); if (bsrSpan) bsrText = bsrSpan.textContent.trim(); }
-    if (bsrText === 'N/A') {
-        const detailBullets = document.getElementById('detailBullets_feature_div');
-        if (detailBullets) { const bsrLi = Array.from(detailBullets.querySelectorAll('li')).find(li => li.innerText.includes('Best Sellers Rank')); if (bsrLi) bsrText = bsrLi.innerText.split(':')[1].trim(); }
-    }
-    if (bsrText === 'N/A') {
-        const rankElement = Array.from(document.querySelectorAll('span.a-list-item')).find(el => el.textContent.includes('Best Sellers Rank'));
-        if (rankElement) bsrText = rankElement.textContent.replace('Best Sellers Rank:', '').trim();
-    }
-    const bsrMatch = bsrText.match(/[\d,]+/); if (bsrMatch) bsrNumber = parseInt(bsrMatch[0].replace(/[#,]/g, ''), 10);
-    const categoryMatch = bsrText.match(/in\s+([^\(]+)/); if (categoryMatch) categoryName = categoryMatch[1].trim();
+    
+    // BSR'ı işle ve UI'a yaz (Yüzdelik dilim ile birlikte)
+    const { bsrNumber, categoryName } = getBSRDataFromPage();
     const bsrInput = mainView.querySelector('#bsrInput');
-    if (bsrInput) { const percentageString = calculateBsrPercentage(bsrNumber, categoryName, data.bsr_data); bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`; }
 
-    const costInput = mainView.querySelector('#costInput'); const saleInput = mainView.querySelector('#saleInput');
-    const profitResult = mainView.querySelector('#profitResult'); const roiResult = mainView.querySelector('#roiResult'); const breakevenResult = mainView.querySelector('#breakevenResult');
-    let referralFeePercentage = (data.buyboxPrice && data.referralFee) ? (data.referralFee / data.buyboxPrice) : 0;
-    function formatInput(inputElement) { let value = inputElement.value; if (value && !value.includes('.')) inputElement.value = parseFloat(value).toFixed(2); }
-    function calculateProfit() {
-        const cost = parseFloat(costInput.value) || 0; const sale = parseFloat(saleInput.value) || 0;
-        const currentReferralFee = sale * referralFeePercentage; const fbaFee = data.fbaFee || 0;
-        const totalFees = currentReferralFee + fbaFee; const profit = sale - cost - totalFees;
-        const roi = cost === 0 ? 0 : (profit / cost) * 100;
-        let breakeven = (referralFeePercentage && referralFeePercentage < 1) ? (cost + fbaFee) / (1 - referralFeePercentage) : cost + fbaFee;
-        profitResult.textContent = profit.toFixed(2); roiResult.textContent = `${roi.toFixed(2)}%`; breakevenResult.textContent = breakeven.toFixed(2);
-        if (mainView.querySelector('#fbaFeeDisplay')) mainView.querySelector('#fbaFeeDisplay').textContent = `FBA Fee: ${formatCurrency(fbaFee, data.currencyCode)}`;
-        if (mainView.querySelector('#referralFeeDisplay')) mainView.querySelector('#referralFeeDisplay').textContent = `Referral Fee: ${formatCurrency(currentReferralFee, data.currencyCode)}`;
-        profitResult.classList.remove('positive', 'negative'); roiResult.classList.remove('positive', 'negative');
-        if (profit > 0) profitResult.classList.add('positive'); else if (profit < 0) profitResult.classList.add('negative');
+    function formatBsr(num) {
+        if (!num || isNaN(num)) return 'N/A';
+        return num < 1000 ? num.toString() : `${Math.floor(num / 1000)}k`;
     }
-    costInput.addEventListener('input', calculateProfit); costInput.addEventListener('blur', () => formatInput(costInput));
-    saleInput.addEventListener('input', calculateProfit); saleInput.addEventListener('blur', () => formatInput(saleInput));
-    if (data.buyboxPrice) saleInput.value = data.buyboxPrice.toFixed(2);
+
+    function calculateBsrPercentage(bsr, category, bsrData) {
+        if (!bsr || !category || !bsrData || !bsrData[category]) return '';
+        const categoryData = bsrData[category];
+        const thresholds = {
+            '0.5%': categoryData['Top 0.5% BSR'], '1%': categoryData['Top 1% BSR'],
+            '2%': categoryData['Top 2% BSR'],   '3%': categoryData['Top 3% BSR'],
+            '5%': categoryData['Top 5% BSR'],   '10%': categoryData['Top 10% BSR'],
+        };
+        for (const [perc, value] of Object.entries(thresholds)) {
+            if (bsr <= value) return ` (${perc})`;
+        }
+        return '';
+    }
+
+    if (bsrInput && bsrNumber) {
+        const percentageString = calculateBsrPercentage(bsrNumber, categoryName, data.bsr_data);
+        bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`;
+    } else if(bsrInput) {
+        bsrInput.value = 'N/A';
+    }
+
+    // Hesaplayıcıyı kur
+    const costInput = mainView.querySelector('#costInput');
+    const saleInput = mainView.querySelector('#saleInput');
+    const profitResult = mainView.querySelector('#profitResult');
+    const roiResult = mainView.querySelector('#roiResult');
+    const breakevenResult = mainView.querySelector('#breakevenResult');
+    let referralFeePercentage = (data.buyboxPrice && data.referralFee) ? (data.referralFee / data.buyboxPrice) : 0;
+
+    function calculateProfit() {
+        const cost = parseFloat(costInput.value) || 0;
+        const sale = parseFloat(saleInput.value) || 0;
+        const currentReferralFee = sale * referralFeePercentage;
+        const fbaFee = data.fbaFee || 0;
+        const totalFees = currentReferralFee + fbaFee;
+        const profit = sale - cost - totalFees;
+        const roi = cost === 0 ? 0 : (profit / cost) * 100;
+        let breakeven = (referralFeePercentage < 1) ? (cost + fbaFee) / (1 - referralFeePercentage) : cost + fbaFee;
+        
+        profitResult.textContent = formatCurrency(profit, defaultCurrency);
+        roiResult.textContent = `${roi.toFixed(2)}%`;
+        breakevenResult.textContent = formatCurrency(breakeven, defaultCurrency);
+        
+        profitResult.classList.remove('positive', 'negative');
+        if (profit > 0) profitResult.classList.add('positive');
+        else if (profit < 0) profitResult.classList.add('negative');
+
+        roiResult.classList.remove('positive', 'negative');
+        if (roi > 0) roiResult.classList.add('positive');
+        else if (roi < 0) roiResult.classList.add('negative');
+
+        mainView.querySelector('#referralFeeDisplay').textContent = `Referral Fee: ${formatCurrency(currentReferralFee, defaultCurrency)}`;
+    }
+
+    costInput.addEventListener('input', calculateProfit);
+    saleInput.addEventListener('input', calculateProfit);
+    if (data.buyboxPrice) {
+        saleInput.value = data.buyboxPrice.toFixed(2);
+    }
     calculateProfit();
     calculateAndDisplayShipping();
 }
 
+
 function renderEuMarketPrices(container, asin, prices) {
-    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧', 'US': '🇺🇸', 'CA': '🇨🇦', 'MX': '🇲🇽', 'AU': '🇦🇺', 'JP': '🇯🇵', 'IN': '🇮🇳', 'BR': '🇧🇷', 'CN': '🇨🇳', 'AE': '🇦🇪', 'SA': '🇸🇦', 'SE': '🇸🇪', 'PL': '🇵🇱', 'EG': '🇪🇬', 'TR': '🇹🇷' };
-    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk', 'US': 'com', 'CA': 'ca', 'MX': 'com.mx', 'AU': 'com.au', 'JP': 'co.jp', 'IN': 'in', 'BR': 'com.br', 'CN': 'cn', 'AE': 'ae', 'SA': 'sa', 'SE': 'se', 'PL': 'pl', 'EG': 'eg', 'TR': 'com.tr' };
-    let euBox = container.querySelector('#fc-eu-market-prices'); if (!euBox) return;
-    const list = euBox.querySelector('.fc-eu-prices-list'); if (!list) return;
-    if (!prices || prices.length === 0) { list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>'; return; }
+    const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧' };
+    const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk' };
+    let euBox = container.querySelector('#fc-eu-market-prices');
+    if (!euBox) return;
+    const list = euBox.querySelector('.fc-eu-prices-list');
+    if (!list || !prices || prices.length === 0) {
+        list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>';
+        return;
+    }
     list.innerHTML = `
         <table class="fc-eu-market-table">
             <thead><tr><th>Ülke</th><th>Adet</th><th>Fiyat</th></tr></thead>
@@ -450,47 +488,37 @@ function renderEuMarketPrices(container, asin, prices) {
     }
 }
 
-chrome.runtime && chrome.runtime.onMessage && chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === 'euMarketPrices' && msg.asin) {
-        let container = document.getElementById('fastchecker-product-ui');
-        if (!container) container = createUIContainer();
-        renderEuMarketPrices(container, msg.asin, msg.prices);
-    }
-});
-
+// --- BAŞLANGIÇ VE MESAJ YÖNETİMİ ---
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
-    const marketplace = getMarketplaceFromUrl();
+
     const container = createUIContainer();
     if (!container) return;
 
-    // Arka plana ASIN ve marketplace bilgisini gönder
     chrome.runtime.sendMessage({
         action: 'fetchProductDetails',
         asin: asin,
-        marketplace: marketplace
+        marketplace: getMarketplaceFromUrl()
     });
-    
-    // Gelen veriyi dinle
-    chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-        if (request.action === "displayProductDetails" && request.asin === asin) {
+
+    chrome.runtime.sendMessage({
+        action: 'fetchEuMarketPrices',
+        asin: asin,
+        markets: ['DE', 'FR', 'IT', 'ES', 'GB']
+    });
+
+    chrome.runtime.onMessage.addListener(function messageListener(request, sender, sendResponse) {
+        if (request.asin !== asin) return;
+
+        if (request.action === "displayProductDetails") {
             if (request.data.error) {
-                updateUI(container, {}, request.data.error);
+                updateUI(container, null, request.data.error);
             } else {
                 updateUI(container, request.data);
             }
-        }
-    });
-
-    renderEuMarketPrices(container, asin, []);
-    chrome.runtime && chrome.runtime.sendMessage && chrome.runtime.sendMessage({
-        action: 'fetchEuMarketPrices',
-        asin: asin,
-        markets: ['DE', 'FR', 'IT', 'ES']
-    }, (resp) => {
-        if (resp && !resp.success) {
-            console.warn('EU market fiyat isteği başarısız:', resp.error);
+        } else if (request.action === 'euMarketPrices') {
+            renderEuMarketPrices(container, request.asin, request.prices);
         }
     });
 })();
