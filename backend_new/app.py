@@ -112,37 +112,62 @@ def extract_bsr_from_attributes(attributes_data):
         logger.error(f"❌ Error extracting BSR from attributes: {str(e)}")
         return {}
 
+# GÜVENLİK AĞI: API'dan İngilizce isim gelirse diye bir çeviri haritası
+CATEGORY_TRANSLATION_MAP = {
+    'IT': {
+        'Home Improvement': 'Fai da te',
+        'Electronics': 'Elettronica',
+        'Health & Personal Care': 'Salute e cura della persona',
+        'Home & Kitchen': 'Casa e cucina',
+        'Toys & Games': 'Giochi e giocattoli',
+    },
+    'DE': {
+        'Home Improvement': 'Baumarkt',
+        'Kitchen': 'Küche, Haushalt & Wohnen',
+        'Electronics': 'Elektronik & Foto',
+        'Toys': 'Spielzeug',
+    },
+    # Diğer pazar yerleri için de genişletilebilir
+}
+
+# GÜÇLENDİRİLMİŞ EŞLEŞTİRME FONKSİYONU
 def match_category_to_bsr_table(amazon_category, bsr_table):
-    """Match Amazon category to BSR table category"""
+    """
+    Match Amazon category to BSR table category with more resilience.
+    Case-insensitive and handles special characters.
+    """
     if not amazon_category or not bsr_table:
         return None
-    
-    # Direkt eşleşme
-    if amazon_category in bsr_table:
-        return amazon_category
-    
-    # Case insensitive eşleşme
+
+    # Eşleştirme için kategorileri temizle (küçük harf yap, özel karakterleri ve boşlukları at)
+    def normalize_category(cat_name):
+        return re.sub(r'[^a-z0-9]', '', cat_name.lower())
+
+    normalized_amazon_cat = normalize_category(amazon_category)
+    if not normalized_amazon_cat:
+        return None
+
+    # 1. Normalleştirilmiş isimle direkt eşleşme ara
     for bsr_category in bsr_table.keys():
-        if amazon_category.lower() == bsr_category.lower():
+        if normalized_amazon_cat == normalize_category(bsr_category):
+            logger.info(f"Category matched: '{amazon_category}' -> '{bsr_category}' (Normalized match)")
             return bsr_category
-    
-    # Kısmi eşleşme (Amazon kategorisi BSR kategorisinin içinde var mı?)
+
+    # 2. Kısmi eşleşme (içeriyor mu)
     for bsr_category in bsr_table.keys():
-        if amazon_category.lower() in bsr_category.lower():
+        if normalized_amazon_cat in normalize_category(bsr_category):
+            logger.info(f"Category matched: '{amazon_category}' -> '{bsr_category}' (Partial match)")
             return bsr_category
-    
-    # Ters kısmi eşleşme (BSR kategorisi Amazon kategorisinin içinde var mı?)
-    for bsr_category in bsr_table.keys():
-        if bsr_category.lower() in amazon_category.lower():
-            return bsr_category
-    
-    # Kelime bazında eşleşme
+
+    # 3. Kelime bazında eşleşme
     amazon_words = set(amazon_category.lower().split())
     for bsr_category in bsr_table.keys():
         bsr_words = set(bsr_category.lower().split())
         if amazon_words.intersection(bsr_words):
+            logger.info(f"Category matched: '{amazon_category}' -> '{bsr_category}' (Word intersection)")
             return bsr_category
-    
+
+    logger.warning(f"Could not match Amazon category '{amazon_category}' to any BSR table category.")
     return None
 
 def calculate_bsr_percentage(bsr_rank, bsr_category_data):
@@ -483,23 +508,22 @@ def get_root_category_from_classifications(asin: str, marketplace_str: str, cred
     """
     logger.info(f"Fetching root category for ASIN {asin} using classifications API...")
     try:
-        marketplace = getattr(Marketplaces, marketplace_str.upper())
-        catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
+        marketplace_id = MARKETPLACE_REGIONS[marketplace_str.upper()]['marketplace_id']
+        catalog_api = CatalogItems(credentials=credentials) # Marketplace burada belirtilmiyor
 
-        # searchCatalogItems, ASIN ile arama yaparken de kullanılabilir.
+        # HATA DÜZELTİLDİ: 'keywords' yerine 'identifiers' ve 'identifierType' kullanılıyor.
         response = catalog_api.search_catalog_items(
-            keywords=asin,
-            marketplaceIds=[marketplace.marketplace_id],
+            identifiers=asin,
+            identifierType='ASIN', # Bu parametre kritik öneme sahip
+            marketplaceIds=[marketplace_id],
             includedData=['classifications']
         )
 
-        # Yanıttan doğru ürünü ve sınıflandırmaları bul
         items = response.payload.get('items', [])
         if not items:
-            logger.warning("Classifications API returned no items.")
+            logger.warning("Classifications API returned no items for this ASIN.")
             return None
 
-        # Genellikle ASIN ile aratınca ilk ürün doğrudur.
         item = items[0]
         classifications = item.get('classifications', [])
 
@@ -509,7 +533,7 @@ def get_root_category_from_classifications(asin: str, marketplace_str: str, cred
             logger.info(f"✅ Found root category via Classifications API: '{root_category_name}'")
             return root_category_name
         else:
-            logger.warning("No classifications found in the API response.")
+            logger.warning("No classifications found in the API response for this ASIN.")
             return None
 
     except SellingApiException as e:
