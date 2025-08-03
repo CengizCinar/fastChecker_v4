@@ -204,11 +204,12 @@ try:
     for country, data in BSR_TABLES.items():
         logger.info(f"📊 {country} BSR Table - Total entries: {len(data)}")
         
-        # Log first 3 entries to see structure
+        # Log ALL entries to see complete structure
         if data:
-            logger.info(f"🔍 {country} - Sample BSR entries:")
-            for i, (key, value) in enumerate(list(data.items())[:3]):
-                logger.info(f"   Entry {i+1}: Key='{key}' -> Value='{value}'")
+            logger.info(f"🔍 {country} - ALL BSR categories:")
+            for i, (key, value) in enumerate(data.items()):
+                logger.info(f"   {i+1:2d}. {key}: {value}")
+            logger.info(f"--- End of {country} BSR data ---")
         else:
             logger.warning(f"⚠️ {country} - No BSR data loaded!")
     
@@ -576,7 +577,13 @@ def health_check():
         "timestamp": datetime.now().isoformat(),
         "credentials_loaded": bool(na_credentials),
         "eu_credentials_loaded": bool(eu_credentials),
-        "bsr_tables_loaded": bool(BSR_TABLES.get('US')) and bool(BSR_TABLES.get('CA')),
+        "bsr_tables_loaded": bool(bsr_cache['data']),
+        "bsr_cache_status": {
+            "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
+            "cache_expired": is_bsr_cache_expired(),
+            "available_countries": list(bsr_cache['data'].keys()),
+            "cache_file_exists": os.path.exists(BSR_CACHE_FILE)
+        },
         "supported_marketplaces": list(MARKETPLACE_REGIONS.keys()),
         "exchange_rate_enabled": bool(os.environ.get('EXCHANGE_RATE_API_KEY')),
         "exchange_rate_cache_status": {
@@ -722,7 +729,6 @@ def api_convert_currency():
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
-# NEW ENDPOINT TO CHECK BSR DATA
 @app.route('/bsr_debug/<string:marketplace>', methods=['GET'])
 def api_debug_bsr_data(marketplace):
     """Debug endpoint to check BSR data for a specific marketplace"""
@@ -735,13 +741,20 @@ def api_debug_bsr_data(marketplace):
         return jsonify({"error": f"Unsupported marketplace: {marketplace}. Supported: {supported}"}), 400
     
     try:
-        bsr_data = BSR_TABLES.get(marketplace, {})
+        # Get fresh BSR data (will use cache if still valid)
+        current_bsr_tables = get_bsr_data()
+        bsr_data = current_bsr_tables.get(marketplace, {})
         
         # Detailed BSR analysis
         result = {
             "marketplace": marketplace,
             "bsr_data_available": bool(bsr_data),
             "total_entries": len(bsr_data),
+            "cache_status": {
+                "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
+                "cache_expired": is_bsr_cache_expired(),
+                "cache_file_exists": os.path.exists(BSR_CACHE_FILE)
+            },
             "timestamp": datetime.now().isoformat()
         }
         
@@ -765,13 +778,44 @@ def api_debug_bsr_data(marketplace):
             
         else:
             result["error"] = f"No BSR data loaded for marketplace: {marketplace}"
-            result["available_marketplaces"] = list(BSR_TABLES.keys())
+            result["available_marketplaces"] = list(current_bsr_tables.keys())
         
         logger.info(f"BSR Debug completed for {marketplace}: {len(bsr_data)} entries")
         return jsonify(result)
         
     except Exception as e:
         logger.error(f"❌ Error in BSR debug endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+# NEW ENDPOINT TO FORCE BSR REFRESH
+@app.route('/bsr_refresh', methods=['POST'])
+def api_force_bsr_refresh():
+    """Force refresh BSR data"""
+    logger.info("🔄 Manual BSR refresh requested")
+    
+    try:
+        if refresh_bsr_data():
+            # Update global BSR_TABLES
+            global BSR_TABLES
+            BSR_TABLES = bsr_cache['data']
+            
+            return jsonify({
+                "status": "success",
+                "message": "BSR data refreshed successfully",
+                "last_update": bsr_cache['last_update'].isoformat(),
+                "available_countries": list(bsr_cache['data'].keys()),
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "Failed to refresh BSR data",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Error in BSR refresh endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
