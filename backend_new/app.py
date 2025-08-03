@@ -508,14 +508,16 @@ def get_root_category_from_classifications(asin: str, marketplace_str: str, cred
     """
     logger.info(f"Fetching root category for ASIN {asin} using classifications API...")
     try:
-        marketplace_id = MARKETPLACE_REGIONS[marketplace_str.upper()]['marketplace_id']
-        catalog_api = CatalogItems(credentials=credentials) # Marketplace burada belirtilmiyor
+        # DOĞRU MARKETPLACE OBJESİNİ ALIYORUZ
+        marketplace = getattr(Marketplaces, marketplace_str.upper())
+        
+        # HATA DÜZELTİLDİ: İstemciyi doğru marketplace (ve dolayısıyla doğru BÖLGE) ile başlatıyoruz.
+        catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
 
-        # HATA DÜZELTİLDİ: 'keywords' yerine 'identifiers' ve 'identifierType' kullanılıyor.
         response = catalog_api.search_catalog_items(
             identifiers=asin,
-            identifierType='ASIN', # Bu parametre kritik öneme sahip
-            marketplaceIds=[marketplace_id],
+            identifierType='ASIN',
+            marketplaceIds=[marketplace.marketplace_id], # Pazar yeri ID'sini buradan alıyoruz
             includedData=['classifications']
         )
 
@@ -528,7 +530,6 @@ def get_root_category_from_classifications(asin: str, marketplace_str: str, cred
         classifications = item.get('classifications', [])
 
         if classifications:
-            # Listenin ilk elemanı her zaman ana kategoridir.
             root_category_name = classifications[0].get('displayName')
             logger.info(f"✅ Found root category via Classifications API: '{root_category_name}'")
             return root_category_name
@@ -703,16 +704,16 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         except Exception as e:
             logger.error(f"❌ Error fetching or processing offers: {str(e)}")
 
-        # 4. Gelişmiş BSR Analizi (Ana Kategori Bulma ile Güçlendirildi)
-        logger.info("🎯 Step 4: Performing BSR Analysis with Root Category...")
+        # 4. Gelişmiş BSR Analizi (Ana Kategori ve Dil Çevirisi ile Güçlendirildi)
+        logger.info("🎯 Step 4: Performing BSR Analysis with Root Category and Translation...")
         if result_data.get('bsr_info'):
             current_bsr_info = result_data['bsr_info']
             
             # --- En Güvenilir Ana Kategori Adını Bulma Stratejisi ---
-            # 1. ÖNCELİK: Classifications API'sini dene.
+            # 1. ÖNCELİK: Classifications API'sini dene. Bu bize yerel dilde ismi vermeli.
             best_category_name = get_root_category_from_classifications(asin, marketplace_str, credentials)
 
-            # 2. ÖNCELİK (Fallback): Eğer Classifications API'si çalışmazsa, Offers API'sinden gelen BSR kategori adını kullan.
+            # 2. ÖNCELİK (Fallback): Eğer çalışmazsa, Offers API'sinden gelen BSR kategori adını kullan.
             if not best_category_name:
                 logger.warning("Could not get root category from Classifications API. Falling back to category from SalesRankings.")
                 best_category_name = current_bsr_info.get('category')
@@ -723,11 +724,20 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                  best_category_name = result_data.get('category_from_api')
             # --- Strateji Sonu ---
 
-            logger.info(f"Using '{best_category_name}' for BSR analysis matching.")
+            logger.info(f"Initial category name found: '{best_category_name}'")
 
+            # --- DİL ÇEVİRİSİ VE EŞLEŞTİRME AŞAMASI ---
             if best_category_name:
+                # Çeviri haritasından bu pazar yeri için olan bölümü al
+                translation_dict = CATEGORY_TRANSLATION_MAP.get(marketplace_str.upper(), {})
+                # Bulunan kategori adını çevirmeyi dene. Çevirisi yoksa, orijinalini kullan.
+                category_to_match = translation_dict.get(best_category_name, best_category_name)
+                
+                if category_to_match != best_category_name:
+                    logger.info(f"Translated '{best_category_name}' to '{category_to_match}' for marketplace {marketplace_str.upper()}")
+                
                 bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
-                matched_category = match_category_to_bsr_table(best_category_name, bsr_data)
+                matched_category = match_category_to_bsr_table(category_to_match, bsr_data)
                 
                 if matched_category:
                     bsr_percentage = calculate_bsr_percentage(current_bsr_info['rank'], bsr_data[matched_category])
@@ -738,11 +748,10 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                     }
                     logger.info(f"✅ BSR Analysis Complete: {bsr_percentage['display']} in matched category '{matched_category}'")
                 else:
-                    result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Category '{best_category_name}' not in BSR table)"}
-                    logger.warning(f"⚠️ BSR Category '{best_category_name}' not found in BSR table")
+                    result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Category '{category_to_match}' not in BSR table)"}
+                    logger.warning(f"⚠️ BSR Category '{category_to_match}' not found in BSR table")
             else:
                  result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Could not determine category)"}
-
         else:
             result_data['bsr_analysis'] = {'enhanced_display': "BSR not available"}
             logger.info("ℹ️ No BSR information found from Offers API.")
