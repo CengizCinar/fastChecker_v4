@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sp_api.api import CatalogItems, ListingsRestrictions, Products, ProductFees
 from sp_api.base import Marketplaces, SellingApiException
+import re
 
 # Fix the import - use relative import since bsr_scraper.py is in the same directory
 try:
@@ -70,6 +71,124 @@ MARKETPLACE_REGIONS = {
     'PL': {'region': 'EU', 'marketplace_id': 'A1C3SOZRARQ6R3'},
     'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
 }
+
+# --- BSR Analysis Functions ---
+def extract_bsr_from_attributes(attributes_data):
+    """Extract BSR information from Amazon SP-API attributes"""
+    bsr_info = {}
+    
+    try:
+        # Amazon SP-API'da BSR genellikle 'best_sellers_rank' altında gelir
+        best_sellers_rank = attributes_data.get('best_sellers_rank', [])
+        
+        if best_sellers_rank:
+            for rank_item in best_sellers_rank:
+                if isinstance(rank_item, dict):
+                    rank = rank_item.get('value')
+                    category = rank_item.get('display_value', 'Unknown Category')
+                    
+                    if rank:
+                        bsr_info['rank'] = int(rank)
+                        bsr_info['category'] = category
+                        logger.info(f"🏆 BSR Found: #{rank} in {category}")
+                        break
+        
+        # Alternatif: sales_rank alanını kontrol et
+        if not bsr_info and 'sales_rank' in attributes_data:
+            sales_rank = attributes_data.get('sales_rank', [])
+            if sales_rank and isinstance(sales_rank[0], dict):
+                rank_data = sales_rank[0]
+                rank = rank_data.get('value')
+                category = rank_data.get('display_value', 'Unknown Category')
+                
+                if rank:
+                    bsr_info['rank'] = int(rank)
+                    bsr_info['category'] = category
+                    logger.info(f"🏆 Sales Rank Found: #{rank} in {category}")
+        
+        return bsr_info
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting BSR from attributes: {str(e)}")
+        return {}
+
+def match_category_to_bsr_table(amazon_category, bsr_table):
+    """Match Amazon category to BSR table category"""
+    if not amazon_category or not bsr_table:
+        return None
+    
+    # Direkt eşleşme
+    if amazon_category in bsr_table:
+        return amazon_category
+    
+    # Case insensitive eşleşme
+    for bsr_category in bsr_table.keys():
+        if amazon_category.lower() == bsr_category.lower():
+            return bsr_category
+    
+    # Kısmi eşleşme (Amazon kategorisi BSR kategorisinin içinde var mı?)
+    for bsr_category in bsr_table.keys():
+        if amazon_category.lower() in bsr_category.lower():
+            return bsr_category
+    
+    # Ters kısmi eşleşme (BSR kategorisi Amazon kategorisinin içinde var mı?)
+    for bsr_category in bsr_table.keys():
+        if bsr_category.lower() in amazon_category.lower():
+            return bsr_category
+    
+    # Kelime bazında eşleşme
+    amazon_words = set(amazon_category.lower().split())
+    for bsr_category in bsr_table.keys():
+        bsr_words = set(bsr_category.lower().split())
+        if amazon_words.intersection(bsr_words):
+            return bsr_category
+    
+    return None
+
+def calculate_bsr_percentage(bsr_rank, bsr_category_data):
+    """Calculate BSR percentage based on rank and thresholds"""
+    if not bsr_rank or not bsr_category_data:
+        return None
+    
+    # BSR eşiklerini büyükten küçüğe sırala
+    thresholds = []
+    for threshold_name, threshold_value in bsr_category_data.items():
+        if isinstance(threshold_value, (int, float)):
+            # Percentage bilgisini threshold adından çıkar
+            percentage_match = re.search(r'(\d+(?:\.\d+)?)', threshold_name)
+            if percentage_match:
+                percentage = float(percentage_match.group(1))
+                thresholds.append((percentage, threshold_value, threshold_name))
+    
+    # Eşikleri değere göre küçükten büyüğe sırala
+    thresholds.sort(key=lambda x: x[1])
+    
+    # BSR'a göre yüzdelik dilimi bul
+    for percentage, threshold_value, threshold_name in thresholds:
+        if bsr_rank <= threshold_value:
+            return {
+                'percentage': percentage,
+                'threshold_name': threshold_name,
+                'threshold_value': threshold_value,
+                'display': f"#{bsr_rank} (Top {percentage}%)"
+            }
+    
+    # Hiçbir eşiğe uymuyorsa, en düşük performans kategorisi
+    if thresholds:
+        worst_threshold = thresholds[-1]
+        return {
+            'percentage': f">{worst_threshold[0]}",
+            'threshold_name': "Beyond thresholds",
+            'threshold_value': worst_threshold[1],
+            'display': f"#{bsr_rank} (>Top {worst_threshold[0]}%)"
+        }
+    
+    return {
+        'percentage': "Unknown",
+        'threshold_name': "No thresholds available",
+        'threshold_value': 0,
+        'display': f"#{bsr_rank} (Unknown %)"
+    }
 
 # --- BSR Cache Functions (Railway Memory-based) ---
 def is_bsr_cache_expired():
@@ -387,10 +506,14 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
         result_data = {}
 
-        # 1. Catalog Info (Attributes)
-        logger.info("🔍 Step 1: Fetching catalog attributes...")
+        # 1. Catalog Info (Attributes) - ENHANCED WITH BSR EXTRACTION
+        logger.info("🔍 Step 1: Fetching catalog attributes + BSR...")
         try:
-            catalog_response_attributes = catalog_api.get_catalog_item(asin, includedData=['summaries', 'identifiers', 'attributes'])
+            # Get comprehensive catalog data including product types and BSR
+            catalog_response_attributes = catalog_api.get_catalog_item(
+                asin, 
+                includedData=['summaries', 'identifiers', 'attributes', 'productTypes', 'salesRanks']
+            )
             logger.info("✅ Catalog attributes fetched successfully")
             
             summary = catalog_response_attributes.payload.get('summaries', [{}])[0]
@@ -401,6 +524,76 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             
             logger.info(f"Product: {result_data['title'][:50]}...")
             logger.info(f"Brand: {result_data['brand']}")
+            
+            # ENHANCED: Extract BSR information from attributes
+            attributes_data = catalog_response_attributes.payload.get('attributes', {})
+            bsr_info = extract_bsr_from_attributes(attributes_data)
+            
+            # ENHANCED: Extract category from product types
+            product_types = catalog_response_attributes.payload.get('productTypes', [])
+            category_from_product_types = None
+            if product_types:
+                category_from_product_types = product_types[0].get('displayName', 'Unknown')
+                logger.info(f"📂 Product Type Category: {category_from_product_types}")
+            
+            # ENHANCED: Extract sales ranks (alternative BSR source)
+            sales_ranks = catalog_response_attributes.payload.get('salesRanks', [])
+            if sales_ranks and not bsr_info:
+                for rank_item in sales_ranks:
+                    if isinstance(rank_item, dict):
+                        rank = rank_item.get('rank')
+                        category = rank_item.get('displayName', 'Unknown Category')
+                        
+                        if rank:
+                            bsr_info = {
+                                'rank': int(rank),
+                                'category': category
+                            }
+                            logger.info(f"🏆 Sales Rank Found: #{rank} in {category}")
+                            break
+            
+            result_data['bsr_info'] = bsr_info
+            result_data['category_from_api'] = category_from_product_types
+            
+            # ENHANCED: BSR Analysis with BSR Table
+            if bsr_info and bsr_info.get('rank'):
+                bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
+                
+                # Try to match Amazon category to BSR table
+                matched_category = None
+                if bsr_info.get('category'):
+                    matched_category = match_category_to_bsr_table(bsr_info['category'], bsr_data)
+                elif category_from_product_types:
+                    matched_category = match_category_to_bsr_table(category_from_product_types, bsr_data)
+                
+                if matched_category and matched_category in bsr_data:
+                    bsr_category_data = bsr_data[matched_category]
+                    bsr_percentage = calculate_bsr_percentage(bsr_info['rank'], bsr_category_data)
+                    
+                    result_data['bsr_analysis'] = {
+                        'matched_category': matched_category,
+                        'bsr_percentage': bsr_percentage,
+                        'enhanced_display': bsr_percentage['display'] if bsr_percentage else f"#{bsr_info['rank']} (Unknown %)"
+                    }
+                    
+                    logger.info(f"🎯 BSR Analysis Complete:")
+                    logger.info(f"   Original Category: {bsr_info.get('category', 'N/A')}")
+                    logger.info(f"   Matched BSR Category: {matched_category}")
+                    logger.info(f"   BSR Display: {bsr_percentage['display'] if bsr_percentage else 'Unknown %'}")
+                else:
+                    result_data['bsr_analysis'] = {
+                        'matched_category': None,
+                        'bsr_percentage': None,
+                        'enhanced_display': f"#{bsr_info['rank']} (Category not found)"
+                    }
+                    logger.warning(f"⚠️ BSR Category '{bsr_info.get('category', 'N/A')}' not found in BSR table")
+            else:
+                result_data['bsr_analysis'] = {
+                    'matched_category': None,
+                    'bsr_percentage': None,
+                    'enhanced_display': "BSR not available"
+                }
+                logger.info("ℹ️ No BSR information found from Amazon SP-API")
             
         except Exception as e:
             logger.error(f"❌ Error in catalog attributes: {str(e)}")
@@ -420,8 +613,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         # 3. Dimensions and Weight
         logger.info("📏 Step 3: Processing dimensions and weight...")
         try:
-            attributes_data = catalog_response_attributes.payload.get('attributes', {})
-            
             # Dimensions
             package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
             if package_dims and 'value' in package_dims.get('length', {}):
@@ -604,7 +795,11 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             result_data['exchangeRates'] = {}
             result_data['lastExchangeRateUpdate'] = None
 
-        logger.info("✅ Product details fetched successfully")
+        # 8. ENHANCED: Add BSR table data for reference
+        bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
+        result_data['bsr_data'] = bsr_data
+
+        logger.info("✅ Product details fetched successfully with enhanced BSR analysis")
         return result_data
 
     except SellingApiException as e:
@@ -623,10 +818,16 @@ def health_check():
     logger.info("Health check requested")
     return jsonify({
         "status": "OK", 
-        "message": "FastChecker Backend is running on Railway!",
+        "message": "FastChecker Backend with Enhanced BSR Analysis is running on Railway!",
         "timestamp": datetime.now().isoformat(),
         "deployment_platform": "Railway",
         "cache_type": "Memory-based (Railway compatible)",
+        "features": [
+            "Amazon SP-API BSR extraction",
+            "BSR percentage calculation", 
+            "Category matching",
+            "Enhanced BSR display format"
+        ],
         "credentials_loaded": bool(na_credentials),
         "eu_credentials_loaded": bool(eu_credentials),
         "bsr_tables_loaded": bool(bsr_cache['data']),
@@ -669,17 +870,13 @@ def api_get_product_details(asin):
             logger.error(f"API returning error: {data['error']}")
             return jsonify(data), 500
         
-        # Add BSR data if available for the marketplace (simplified logging for Railway)
-        bsr_data = get_bsr_data().get(marketplace.upper(), {})
-        data['bsr_data'] = bsr_data
-        
-        # Minimal BSR logging for Railway
-        if bsr_data:
-            logger.info(f"📊 BSR data added for {marketplace.upper()}: {len(bsr_data)} categories")
-        else:
-            logger.warning(f"⚠️ No BSR data available for {marketplace.upper()}")
-        
+        # Minimal logging for Railway
         logger.info(f"✅ API request completed successfully for ASIN: {asin}")
+        
+        # Log enhanced BSR results
+        if data.get('bsr_analysis') and data['bsr_analysis'].get('enhanced_display'):
+            logger.info(f"🎯 Enhanced BSR Display: {data['bsr_analysis']['enhanced_display']}")
+        
         return jsonify(data)
         
     except Exception as e:
@@ -788,6 +985,11 @@ def api_debug_bsr_data(marketplace):
                 "cache_storage": "Memory (Railway compatible)"
             },
             "deployment_platform": "Railway",
+            "enhanced_features": [
+                "BSR percentage calculation",
+                "Category matching algorithm",
+                "Enhanced display format"
+            ],
             "timestamp": datetime.now().isoformat()
         }
         
@@ -808,6 +1010,17 @@ def api_debug_bsr_data(marketplace):
                 if cat in bsr_data:
                     found_common[cat] = bsr_data[cat]
             result["common_categories_found"] = found_common
+            
+            # ENHANCED: Show BSR analysis capabilities
+            if found_common:
+                sample_category = list(found_common.keys())[0]
+                sample_bsr_data = found_common[sample_category]
+                sample_analysis = calculate_bsr_percentage(5000, sample_bsr_data)
+                result["sample_bsr_analysis"] = {
+                    "category": sample_category,
+                    "sample_rank": 5000,
+                    "analysis_result": sample_analysis
+                }
             
         else:
             result["error"] = f"No BSR data loaded for marketplace: {marketplace}"
@@ -838,6 +1051,10 @@ def api_force_bsr_refresh():
                 "last_update": bsr_cache['last_update'].isoformat(),
                 "available_countries": list(bsr_cache['data'].keys()),
                 "cache_storage": "Memory (Railway compatible)",
+                "enhanced_features": [
+                    "BSR percentage calculation ready",
+                    "Category matching algorithms updated"
+                ],
                 "timestamp": datetime.now().isoformat()
             })
         else:
@@ -862,6 +1079,12 @@ def api_cache_status():
         return jsonify({
             "deployment_platform": "Railway",
             "cache_type": "Memory-based (ephemeral file system compatible)",
+            "enhanced_features": [
+                "Amazon SP-API BSR extraction",
+                "BSR percentage calculation",
+                "Category matching algorithms",
+                "Enhanced BSR display format"
+            ],
             "bsr_cache": {
                 "status": "active" if bsr_cache['data'] else "empty",
                 "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
@@ -896,5 +1119,5 @@ def handle_exception(e):
 # --- Server Start ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5003))
-    logger.info(f"Starting Flask server on Railway (port {port})")
+    logger.info(f"Starting Flask server with Enhanced BSR Analysis on Railway (port {port})")
     app.run(host='0.0.0.0', port=port, debug=False)
