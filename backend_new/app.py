@@ -506,14 +506,12 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         # 1. Ürün Bilgileri (Özet, EAN, Boyutlar)
         logger.info("🔍 Step 1: Fetching catalog attributes (summary, identifiers, dimensions)...")
         try:
-            # DİKKAT: Artık BSR için 'salesRanks' istemiyoruz.
             catalog_response = catalog_api.get_catalog_item(
                 asin, 
                 includedData=['summaries', 'identifiers', 'attributes', 'productTypes', 'images']
             )
             logger.info("✅ Catalog attributes fetched successfully")
             
-            # --- Temel Bilgiler ---
             summary = catalog_response.payload.get('summaries', [{}])[0]
             result_data['asin'] = asin
             result_data['title'] = summary.get('itemName', 'N/A')
@@ -522,15 +520,9 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.info(f"Brand: {result_data['brand']}")
             
             result_data['ean'] = next((i['identifier'] for i in catalog_response.payload.get('identifiers', [{}])[0].get('identifiers', []) if i['identifierType'] == 'EAN'), 'N/A')
-
-            # --- Resim Bilgisi ---
             result_data['imageUrl'] = catalog_response.payload.get('images', [{}])[0].get('images', [{}])[0].get('link')
-
-            # --- Boyut ve Ağırlık ---
             attributes_data = catalog_response.payload.get('attributes', {})
-            # Önceki hatayı önlemek için 'attributes_data' burada tanımlanıyor.
             
-            # Dimensions
             package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
             if package_dims and 'value' in package_dims.get('length', {}):
                 length = package_dims['length']['value'] * 2.54 if package_dims['length'].get('unit', '').lower() == 'inches' else package_dims['length']['value']
@@ -541,7 +533,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             else:
                 result_data['dimensions'] = "N/A"
 
-            # Weight
             package_weight = attributes_data.get('item_package_weight', [{}])[0]
             if package_weight and 'value' in package_weight:
                 weight_value = package_weight['value']
@@ -550,21 +541,18 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                     weight_gr = weight_value * 453.592
                 elif weight_unit in ['kilograms', 'kg']:
                     weight_gr = weight_value * 1000
-                else: # gram veya tanımsız ise gram varsay
+                else:
                     weight_gr = weight_value
                 result_data['packageWeight'] = f"{weight_gr:.0f} gr"
                 logger.info(f"✅ Weight: {result_data['packageWeight']}")
             else:
                 result_data['packageWeight'] = "N/A"
             
-            # Kategori
             product_types = catalog_response.payload.get('productTypes', [])
             result_data['category_from_api'] = product_types[0].get('displayName') if product_types else 'N/A'
 
         except Exception as e:
             logger.error(f"❌ Error in catalog attributes step: {str(e)}")
-            logger.error(traceback.format_exc())
-            # Temel bilgileri doldurmaya devam et
             result_data.update({'title': 'N/A', 'brand': 'N/A', 'ean': 'N/A', 'imageUrl': None, 'dimensions': 'N/A', 'packageWeight': 'N/A', 'category_from_api': 'N/A'})
 
         # 2. Kısıtlamalar
@@ -588,23 +576,36 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         try:
             offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
             
-            # ---> YENİ BSR MANTIĞI BURADA <---
+            # ---> DÜZELTİLMİŞ BSR MANTIĞI BURADA <---
             summary_data = offers_response.payload.get('Summary', {})
             sales_rankings = summary_data.get('SalesRankings', [])
             if sales_rankings:
-                # En iyi (en düşük) rank'i birincil BSR olarak seçiyoruz.
-                best_rank_info = min(sales_rankings, key=lambda x: x.get('Rank', float('inf')))
-                rank_value = best_rank_info.get('Rank')
-                # Kategori adı yok, sadece ID var. Bunu kullanacağız.
-                category_id_or_name = best_rank_info.get('ProductCategoryId', 'Unknown Category')
-                
-                if rank_value:
-                    bsr_info = {
-                        'rank': int(rank_value),
-                        'category': category_id_or_name.replace('_', ' ').replace(' display on website', '').title()
-                    }
-                    logger.info(f"🏆 BSR Found from Offers API: #{bsr_info['rank']} in '{bsr_info['category']}'")
-            
+                # Ana kategoriyi bulmak için ID'sinde metin olanı (_display_on_website) ara
+                primary_rank_info = None
+                for rank_item in sales_rankings:
+                    category_id = rank_item.get("ProductCategoryId", "")
+                    if isinstance(category_id, str) and "_display_on_website" in category_id:
+                        primary_rank_info = rank_item
+                        logger.info(f"Found primary category rank: {primary_rank_info}")
+                        break  # Ana kategoriyi bulduk, döngüden çık
+
+                # Eğer ana kategori bulunamazsa, en iyi (en düşük) rank'e geri dön
+                if not primary_rank_info:
+                    logger.warning("Could not find a primary display category rank. Falling back to the best numerical rank.")
+                    primary_rank_info = min(sales_rankings, key=lambda x: x.get('Rank', float('inf')))
+
+                # BSR bilgisini doldur
+                if primary_rank_info:
+                    rank_value = primary_rank_info.get('Rank')
+                    category_id_or_name = primary_rank_info.get('ProductCategoryId', 'Unknown Category')
+                    
+                    if rank_value:
+                        bsr_info = {
+                            'rank': int(rank_value),
+                            'category': category_id_or_name.replace('_', ' ').replace(' display on website', '').title()
+                        }
+                        logger.info(f"🏆 BSR Selected: #{bsr_info['rank']} in '{bsr_info['category']}'")
+
             result_data['bsr_info'] = bsr_info if bsr_info else None
             # ---> BSR MANTIĞI BİTTİ <---
             
@@ -634,7 +635,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
         except Exception as e:
             logger.error(f"❌ Error fetching or processing offers: {str(e)}")
-            # ... hata durumları ...
 
         # 4. Gelişmiş BSR Analizi
         logger.info("🎯 Step 4: Performing BSR Analysis...")
@@ -642,8 +642,9 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             current_bsr_info = result_data['bsr_info']
             bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
             
-            # BSR'den gelen kategori adı ile eşleştirme
-            matched_category = match_category_to_bsr_table(current_bsr_info['category'], bsr_data)
+            category_to_match = result_data.get('category_from_api') or current_bsr_info['category']
+            matched_category = match_category_to_bsr_table(category_to_match, bsr_data)
+            logger.info(f"Attempting to match BSR category. Using name: '{category_to_match}'")
             
             if matched_category:
                 bsr_percentage = calculate_bsr_percentage(current_bsr_info['rank'], bsr_data[matched_category])
@@ -655,17 +656,15 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 logger.info(f"✅ BSR Analysis Complete: {bsr_percentage['display']}")
             else:
                 result_data['bsr_analysis'] = {'enhanced_display': f"#{current_bsr_info['rank']} (Category not in BSR table)"}
-                logger.warning(f"⚠️ BSR Category '{current_bsr_info['category']}' not found in BSR table")
+                logger.warning(f"⚠️ BSR Category '{category_to_match}' not found in BSR table")
         else:
             result_data['bsr_analysis'] = {'enhanced_display': "BSR not available"}
             logger.info("ℹ️ No BSR information found from Offers API.")
-
 
         # 5. Ücretler (Fees)
         logger.info("🧮 Step 5: Calculating fees...")
         if buybox_price and currency_code:
             try:
-                # ... (ücret hesaplama kodunuz aynı kalabilir)
                 fees_response = fees_api.get_product_fees_estimate([{'id_type': 'ASIN', 'id_value': asin, 'price': buybox_price, 'currency': currency_code, 'is_fba': True, 'marketplace_id': marketplace.marketplace_id}])
                 fees_result = fees_response.payload[0]
                 if fees_result.get('Status') == 'Success':
@@ -685,10 +684,8 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
 
         # 6. Para Birimi Çevrimi
         logger.info("💱 Step 6: Adding currency conversion data...")
-        # ... (bu kodunuz aynı kalabilir)
         if buybox_price and currency_code:
             result_data['convertedPrices'] = get_converted_prices(buybox_price, currency_code)
-            # ... diğer çevrimler ...
         
         # 7. BSR Tablo Referansı
         bsr_data = get_bsr_data().get(marketplace_str.upper(), {})
