@@ -388,13 +388,16 @@ function updateUI(container, data, error = null) {
     const { bsrNumber, categoryName } = getBSRDataFromPage();
     const bsrInput = mainView.querySelector('#bsrInput');
 
+    const currentMarketplace = getMarketplaceFromUrl();
+    const marketplaceBsrData = data.bsr_data ? data.bsr_data[currentMarketplace.toUpperCase()] : null;
+
     function formatBsr(num) {
         if (!num || isNaN(num)) return 'N/A';
         return num < 1000 ? num.toString() : `${Math.floor(num / 1000)}k`;
     }
 
     function calculateBsrPercentage(bsr, category, bsrData) {
-        if (!bsr || !category || !bsrData || !bsrData[category]) return '';
+        if (!bsr || !category || !bsrData || !bsrData[category]) return ''; // bsrData is now the marketplace-specific data
         const categoryData = bsrData[category];
         const thresholds = {
             '0.5%': categoryData['Top 0.5% BSR'], '1%': categoryData['Top 1% BSR'],
@@ -408,7 +411,7 @@ function updateUI(container, data, error = null) {
     }
 
     if (bsrInput && bsrNumber) {
-        const percentageString = calculateBsrPercentage(bsrNumber, categoryName, data.bsr_data);
+        const percentageString = calculateBsrPercentage(bsrNumber, categoryName, marketplaceBsrData);
         bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`;
     } else if(bsrInput) {
         bsrInput.value = 'N/A';

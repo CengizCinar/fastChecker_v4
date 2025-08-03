@@ -198,6 +198,20 @@ try:
  'ES': scrape_bsr_table_by_country(9), # Spain
  'GB': scrape_bsr_table_by_country(2), # UK
     }
+    
+    # DETAILED BSR DATA LOGGING
+    logger.info("=== BSR DATA LOADED ===")
+    for country, data in BSR_TABLES.items():
+        logger.info(f"📊 {country} BSR Table - Total entries: {len(data)}")
+        
+        # Log first 3 entries to see structure
+        if data:
+            logger.info(f"🔍 {country} - Sample BSR entries:")
+            for i, (key, value) in enumerate(list(data.items())[:3]):
+                logger.info(f"   Entry {i+1}: Key='{key}' -> Value='{value}'")
+        else:
+            logger.warning(f"⚠️ {country} - No BSR data loaded!")
+    
     logger.info(f"BSR tables loaded successfully. US entries: {len(BSR_TABLES.get('US', {}))}, CA entries: {len(BSR_TABLES.get('CA', {}))}")
 except Exception as e:
     logger.error(f"Error loading BSR tables: {str(e)}")
@@ -599,6 +613,33 @@ def api_get_product_details(asin):
         # Add BSR data if available for the marketplace
         bsr_data = BSR_TABLES.get(marketplace.upper(), {})
         data['bsr_data'] = bsr_data
+        
+        # LOG BSR DATA FOR THIS SPECIFIC REQUEST
+        logger.info("=== BSR DATA FOR THIS REQUEST ===")
+        logger.info(f"📊 Marketplace: {marketplace.upper()}")
+        logger.info(f"📊 BSR Data Available: {'Yes' if bsr_data else 'No'}")
+        logger.info(f"📊 BSR Data Entries: {len(bsr_data)}")
+        
+        if bsr_data:
+            # Log first few entries for this marketplace
+            logger.info(f"🔍 Sample BSR entries for {marketplace.upper()}:")
+            for i, (key, value) in enumerate(list(bsr_data.items())[:3]):
+                logger.info(f"   BSR Entry {i+1}: '{key}' -> '{value}'")
+                
+            # Check if we have specific categories
+            sample_categories = ['Electronics', 'Books', 'Home & Kitchen', 'Toys & Games', 'Sports & Outdoors']
+            found_categories = []
+            for category in sample_categories:
+                if category in bsr_data:
+                    found_categories.append(f"{category}: {bsr_data[category]}")
+            
+            if found_categories:
+                logger.info(f"🎯 Found common categories in {marketplace.upper()}: {', '.join(found_categories[:3])}")
+            else:
+                logger.info(f"⚠️ No common categories found in {marketplace.upper()} BSR data")
+        else:
+            logger.warning(f"❌ No BSR data available for marketplace: {marketplace.upper()}")
+        
         logger.info(f"✅ API request completed successfully for ASIN: {asin}")
         return jsonify(data)
         
@@ -678,6 +719,59 @@ def api_convert_currency():
         
     except Exception as e:
         logger.error(f"❌ Error in currency conversion endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+# NEW ENDPOINT TO CHECK BSR DATA
+@app.route('/bsr_debug/<string:marketplace>', methods=['GET'])
+def api_debug_bsr_data(marketplace):
+    """Debug endpoint to check BSR data for a specific marketplace"""
+    logger.info(f"BSR Debug request for marketplace: {marketplace}")
+    
+    marketplace = marketplace.upper()
+    
+    if marketplace not in MARKETPLACE_REGIONS:
+        supported = ', '.join(MARKETPLACE_REGIONS.keys())
+        return jsonify({"error": f"Unsupported marketplace: {marketplace}. Supported: {supported}"}), 400
+    
+    try:
+        bsr_data = BSR_TABLES.get(marketplace, {})
+        
+        # Detailed BSR analysis
+        result = {
+            "marketplace": marketplace,
+            "bsr_data_available": bool(bsr_data),
+            "total_entries": len(bsr_data),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if bsr_data:
+            # Get first 10 entries
+            sample_entries = dict(list(bsr_data.items())[:10])
+            result["sample_entries"] = sample_entries
+            
+            # Get all keys to see structure
+            all_keys = list(bsr_data.keys())
+            result["all_categories"] = all_keys[:50]  # First 50 categories
+            result["total_categories"] = len(all_keys)
+            
+            # Look for common patterns
+            common_categories = ['Electronics', 'Books', 'Home & Kitchen', 'Toys & Games', 'Sports & Outdoors', 'Clothing, Shoes & Jewelry', 'Health & Personal Care']
+            found_common = {}
+            for cat in common_categories:
+                if cat in bsr_data:
+                    found_common[cat] = bsr_data[cat]
+            result["common_categories_found"] = found_common
+            
+        else:
+            result["error"] = f"No BSR data loaded for marketplace: {marketplace}"
+            result["available_marketplaces"] = list(BSR_TABLES.keys())
+        
+        logger.info(f"BSR Debug completed for {marketplace}: {len(bsr_data)} entries")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in BSR debug endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
