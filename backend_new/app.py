@@ -190,14 +190,31 @@ logger.info("=== APPLICATION STARTUP ===")
 logger.info("Loading BSR tables from SellerAmp...")
 try:
     BSR_TABLES = {
-        'US': scrape_bsr_table_by_country(1),
-        'CA': scrape_bsr_table_by_country(6),
+        'US': scrape_bsr_table_by_country(1),   # United States
+        'CA': scrape_bsr_table_by_country(6),   # Canada
+        'GB': scrape_bsr_table_by_country(2),   # United Kingdom
+        'DE': scrape_bsr_table_by_country(3),   # Germany
+        'FR': scrape_bsr_table_by_country(4),   # France
+        'IT': scrape_bsr_table_by_country(8),   # Italy
+        'ES': scrape_bsr_table_by_country(9),   # Spain
     }
-    logger.info(f"BSR tables loaded successfully. US entries: {len(BSR_TABLES.get('US', {}))}, CA entries: {len(BSR_TABLES.get('CA', {}))}")
+    
+    # Log successful loads and count entries
+    total_entries = 0
+    for country, table in BSR_TABLES.items():
+        if table:
+            entries = len(table)
+            total_entries += entries
+            logger.info(f"✅ {country} BSR table loaded: {entries} categories")
+        else:
+            logger.warning(f"⚠️ {country} BSR table failed to load")
+    
+    logger.info(f"BSR tables loaded successfully. Total entries across all countries: {total_entries}")
+    
 except Exception as e:
     logger.error(f"Error loading BSR tables: {str(e)}")
     logger.error(traceback.format_exc())
-    BSR_TABLES = {'US': {}, 'CA': {}}
+    BSR_TABLES = {'US': {}, 'CA': {}, 'GB': {}, 'DE': {}, 'FR': {}, 'IT': {}, 'ES': {}}
 
 # --- Load Exchange Rates on Startup ---
 logger.info("Loading initial exchange rates...")
