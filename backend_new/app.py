@@ -42,6 +42,16 @@ exchange_rates_cache = {
     'cache_duration': 24 * 60 * 60  # 24 hours in seconds
 }
 
+# --- BSR Cache Configuration (Memory-based for Railway) ---
+BSR_CACHE_DURATION = 24 * 60 * 60  # 24 hours in seconds
+
+# BSR cache structure - Railway için memory-based
+bsr_cache = {
+    'data': {},
+    'last_update': None,
+    'cache_duration': BSR_CACHE_DURATION
+}
+
 # --- Marketplace Configuration ---
 MARKETPLACE_REGIONS = {
     # North America (NA) - Same credentials, different domains
@@ -61,8 +71,71 @@ MARKETPLACE_REGIONS = {
     'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
 }
 
+# --- BSR Cache Functions (Railway Memory-based) ---
+def is_bsr_cache_expired():
+    """Check if BSR cache has expired"""
+    if not bsr_cache['last_update']:
+        return True
+    
+    time_since_update = datetime.now() - bsr_cache['last_update']
+    return time_since_update.total_seconds() > bsr_cache['cache_duration']
+
+def refresh_bsr_data():
+    """Refresh BSR data from SellerAmp and update memory cache"""
+    logger.info("🔄 Refreshing BSR data from SellerAmp...")
+    
+    try:
+        new_bsr_data = {
+            'US': scrape_bsr_table_by_country(1),  # US
+            'CA': scrape_bsr_table_by_country(6),  # CA
+            'FR': scrape_bsr_table_by_country(4),  # France
+            'DE': scrape_bsr_table_by_country(3),  # Germany
+            'IT': scrape_bsr_table_by_country(8),  # Italy
+            'ES': scrape_bsr_table_by_country(9),  # Spain
+            'GB': scrape_bsr_table_by_country(2),  # UK
+        }
+        
+        # Verify we got data
+        success_count = 0
+        for country, data in new_bsr_data.items():
+            if data and isinstance(data, dict) and len(data) > 0:
+                success_count += 1
+                logger.info(f"✅ {country}: {len(data)} categories loaded")
+            else:
+                logger.warning(f"⚠️ {country}: No data loaded")
+        
+        if success_count >= 4:  # At least 4 countries should have data
+            # Update memory cache
+            bsr_cache['data'] = new_bsr_data
+            bsr_cache['last_update'] = datetime.now()
+            
+            logger.info(f"✅ BSR data refresh completed. {success_count}/{len(new_bsr_data)} countries loaded successfully")
+            logger.info(f"💾 BSR data cached in memory (Railway-compatible)")
+            return True
+        else:
+            logger.error(f"❌ BSR data refresh failed. Only {success_count}/{len(new_bsr_data)} countries loaded")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Error refreshing BSR data: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
+
+def get_bsr_data():
+    """Get BSR data, refresh if needed (Railway memory-based)"""
+    # Check if cache is expired
+    if is_bsr_cache_expired():
+        cache_age = "Never loaded" if not bsr_cache['last_update'] else str(datetime.now() - bsr_cache['last_update'])
+        logger.info(f"⏰ BSR cache expired (age: {cache_age}), refreshing...")
+        refresh_bsr_data()
+    else:
+        cache_age = datetime.now() - bsr_cache['last_update']
+        logger.info(f"💾 Using cached BSR data (age: {cache_age})")
+    
+    return bsr_cache['data']
+
 # --- Exchange Rate Functions ---
-def is_cache_expired():
+def is_exchange_rate_cache_expired():
     """Check if exchange rate cache has expired"""
     if not exchange_rates_cache['last_update']:
         return True
@@ -91,7 +164,6 @@ def fetch_all_exchange_rates():
                 
             try:
                 url = f"{EXCHANGE_RATE_API_BASE}/{api_key}/pair/{base_currency}/{target_currency}"
-                logger.info(f"📡 Fetching {base_currency} -> {target_currency}")
                 
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
@@ -105,7 +177,6 @@ def fetch_all_exchange_rates():
                         'last_update': data.get('time_last_update_utc'),
                         'next_update': data.get('time_next_update_utc')
                     }
-                    logger.info(f"✅ {base_currency}/{target_currency}: {data['conversion_rate']}")
                 else:
                     logger.error(f"❌ API Error for {base_currency}/{target_currency}: {data.get('error-type', 'Unknown error')}")
                     failed_requests += 1
@@ -133,7 +204,7 @@ def get_exchange_rate(from_currency, to_currency):
         return 1.0
     
     # Check if cache needs refresh
-    if is_cache_expired():
+    if is_exchange_rate_cache_expired():
         logger.info("💱 Exchange rate cache expired, refreshing...")
         fetch_all_exchange_rates()
     
@@ -155,7 +226,6 @@ def convert_currency(amount, from_currency, to_currency):
     rate = get_exchange_rate(from_currency, to_currency)
     if rate:
         converted = float(amount) * rate
-        logger.info(f"💰 Converted {amount} {from_currency} -> {converted:.2f} {to_currency} (rate: {rate})")
         return round(converted, 2)
     else:
         logger.warning(f"⚠️ Could not convert {amount} from {from_currency} to {to_currency}")
@@ -184,49 +254,20 @@ def get_exchange_rates_for_currency(base_currency):
             if rate is not None:
                 rates[f"{base_currency}_{target_currency}"] = rate
     return rates
-def get_bsr_data():
-    """Get BSR data, refresh if needed"""
-    # İlk kez çağrılıyorsa BSR_TABLES'ı döndür
-    if BSR_TABLES:
-        logger.info("💾 BSR Data Source: STARTUP CACHE (loaded at application start)")
-        return BSR_TABLES
-    else:
-        logger.info("❌ BSR Data Source: NO DATA AVAILABLE")
-        return {}
-    
-# --- Load BSR Data with Logging ---
-logger.info("=== APPLICATION STARTUP ===")
-logger.info("Loading BSR tables from SellerAmp...")
-try:
-    BSR_TABLES = {
- 'US': scrape_bsr_table_by_country(1), # US
- 'CA': scrape_bsr_table_by_country(6), # CA
- 'FR': scrape_bsr_table_by_country(4), # France
- 'DE': scrape_bsr_table_by_country(3), # Germany
- 'IT': scrape_bsr_table_by_country(8), # Italy
- 'ES': scrape_bsr_table_by_country(9), # Spain
- 'GB': scrape_bsr_table_by_country(2), # UK
-    }
-    
-    # DETAILED BSR DATA LOGGING
-    logger.info("=== BSR DATA LOADED ===")
-    for country, data in BSR_TABLES.items():
-        logger.info(f"📊 {country} BSR Table - Total entries: {len(data)}")
-        
-        # Log ALL entries to see complete structure
-        if data:
-            logger.info(f"🔍 {country} - ALL BSR categories:")
-            for i, (key, value) in enumerate(data.items()):
-                logger.info(f"   {i+1:2d}. {key}: {value}")
-            logger.info(f"--- End of {country} BSR data ---")
-        else:
-            logger.warning(f"⚠️ {country} - No BSR data loaded!")
-    
-    logger.info(f"BSR tables loaded successfully. US entries: {len(BSR_TABLES.get('US', {}))}, CA entries: {len(BSR_TABLES.get('CA', {}))}")
-except Exception as e:
-    logger.error(f"Error loading BSR tables: {str(e)}")
-    logger.error(traceback.format_exc())
-    BSR_TABLES = {'US': {}, 'CA': {}}
+
+# --- Load BSR Data with Railway-compatible Caching ---
+logger.info("=== APPLICATION STARTUP (Railway Environment) ===")
+
+# Railway'de dosya sistemi geçici olduğu için sadece memory cache kullanıyoruz
+logger.info("🚀 Loading BSR data for Railway deployment...")
+if refresh_bsr_data():
+    logger.info("✅ BSR data loaded and cached in memory")
+else:
+    logger.error("❌ Failed to load BSR data")
+    bsr_cache['data'] = {}
+
+# Create a global reference for backwards compatibility
+BSR_TABLES = bsr_cache['data']
 
 # --- Load Exchange Rates on Startup ---
 logger.info("Loading initial exchange rates...")
@@ -530,7 +571,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.info("ℹ️ No price available for fee calculation, skipping.")
             result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
 
-        # 7. Currency Conversion (NEW FEATURE)
+        # 7. Currency Conversion
         logger.info("💱 Step 7: Adding currency conversion data...")
         try:
             if buybox_price and currency_code and currency_code in SUPPORTED_CURRENCIES:
@@ -547,7 +588,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 if result_data.get('netProfit'):
                     result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
                 
-                logger.info(f"✅ Currency conversion added. Base: {currency_code}, Converted to: {list(result_data['convertedPrices'].keys())}")
+                logger.info(f"✅ Currency conversion added. Base: {currency_code}")
             else:
                 logger.info(f"ℹ️ Currency conversion skipped. Price: {buybox_price}, Currency: {currency_code}")
                 result_data['originalCurrency'] = currency_code
@@ -582,8 +623,10 @@ def health_check():
     logger.info("Health check requested")
     return jsonify({
         "status": "OK", 
-        "message": "FastChecker Backend is running!",
+        "message": "FastChecker Backend is running on Railway!",
         "timestamp": datetime.now().isoformat(),
+        "deployment_platform": "Railway",
+        "cache_type": "Memory-based (Railway compatible)",
         "credentials_loaded": bool(na_credentials),
         "eu_credentials_loaded": bool(eu_credentials),
         "bsr_tables_loaded": bool(bsr_cache['data']),
@@ -591,7 +634,7 @@ def health_check():
             "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
             "cache_expired": is_bsr_cache_expired(),
             "available_countries": list(bsr_cache['data'].keys()),
-            "cache_file_exists": os.path.exists(BSR_CACHE_FILE)
+            "cache_storage": "Memory (Railway ephemeral file system)"
         },
         "supported_marketplaces": list(MARKETPLACE_REGIONS.keys()),
         "exchange_rate_enabled": bool(os.environ.get('EXCHANGE_RATE_API_KEY')),
@@ -599,7 +642,7 @@ def health_check():
             "last_update": exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None,
             "cached_pairs": len(exchange_rates_cache['rates']),
             "supported_currencies": SUPPORTED_CURRENCIES,
-            "cache_expired": is_cache_expired()
+            "cache_expired": is_exchange_rate_cache_expired()
         }
     })
 
@@ -626,35 +669,15 @@ def api_get_product_details(asin):
             logger.error(f"API returning error: {data['error']}")
             return jsonify(data), 500
         
-        # Add BSR data if available for the marketplace
-        bsr_data = BSR_TABLES.get(marketplace.upper(), {})
+        # Add BSR data if available for the marketplace (simplified logging for Railway)
+        bsr_data = get_bsr_data().get(marketplace.upper(), {})
         data['bsr_data'] = bsr_data
         
-        # LOG BSR DATA FOR THIS SPECIFIC REQUEST
-        logger.info("=== BSR DATA FOR THIS REQUEST ===")
-        logger.info(f"📊 Marketplace: {marketplace.upper()}")
-        logger.info(f"📊 BSR Data Available: {'Yes' if bsr_data else 'No'}")
-        logger.info(f"📊 BSR Data Entries: {len(bsr_data)}")
-        
+        # Minimal BSR logging for Railway
         if bsr_data:
-            # Log first few entries for this marketplace
-            logger.info(f"🔍 Sample BSR entries for {marketplace.upper()}:")
-            for i, (key, value) in enumerate(list(bsr_data.items())[:3]):
-                logger.info(f"   BSR Entry {i+1}: '{key}' -> '{value}'")
-                
-            # Check if we have specific categories
-            sample_categories = ['Electronics', 'Books', 'Home & Kitchen', 'Toys & Games', 'Sports & Outdoors']
-            found_categories = []
-            for category in sample_categories:
-                if category in bsr_data:
-                    found_categories.append(f"{category}: {bsr_data[category]}")
-            
-            if found_categories:
-                logger.info(f"🎯 Found common categories in {marketplace.upper()}: {', '.join(found_categories[:3])}")
-            else:
-                logger.info(f"⚠️ No common categories found in {marketplace.upper()} BSR data")
+            logger.info(f"📊 BSR data added for {marketplace.upper()}: {len(bsr_data)} categories")
         else:
-            logger.warning(f"❌ No BSR data available for marketplace: {marketplace.upper()}")
+            logger.warning(f"⚠️ No BSR data available for {marketplace.upper()}")
         
         logger.info(f"✅ API request completed successfully for ASIN: {asin}")
         return jsonify(data)
@@ -674,7 +697,7 @@ def api_get_exchange_rates():
     
     try:
         # Refresh rates if expired
-        if is_cache_expired():
+        if is_exchange_rate_cache_expired():
             logger.info("Cache expired, refreshing exchange rates...")
             success = fetch_all_exchange_rates()
             if not success:
@@ -685,7 +708,7 @@ def api_get_exchange_rates():
             "supported_currencies": SUPPORTED_CURRENCIES,
             "exchange_rates": exchange_rates_cache['rates'],
             "last_update": exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None,
-            "cache_expired": is_cache_expired(),
+            "cache_expired": is_exchange_rate_cache_expired(),
             "timestamp": datetime.now().isoformat()
         })
         
@@ -762,8 +785,9 @@ def api_debug_bsr_data(marketplace):
             "cache_status": {
                 "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
                 "cache_expired": is_bsr_cache_expired(),
-                "cache_file_exists": os.path.exists(BSR_CACHE_FILE)
+                "cache_storage": "Memory (Railway compatible)"
             },
+            "deployment_platform": "Railway",
             "timestamp": datetime.now().isoformat()
         }
         
@@ -797,34 +821,68 @@ def api_debug_bsr_data(marketplace):
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
-# NEW ENDPOINT TO FORCE BSR REFRESH
 @app.route('/bsr_refresh', methods=['POST'])
 def api_force_bsr_refresh():
-    """Force refresh BSR data"""
-    logger.info("🔄 Manual BSR refresh requested")
+    """Force refresh BSR data (Railway memory-based)"""
+    logger.info("🔄 Manual BSR refresh requested (Railway)")
     
     try:
         if refresh_bsr_data():
-            # Update global BSR_TABLES
+            # Update global BSR_TABLES for backwards compatibility
             global BSR_TABLES
             BSR_TABLES = bsr_cache['data']
             
             return jsonify({
                 "status": "success",
-                "message": "BSR data refreshed successfully",
+                "message": "BSR data refreshed successfully in memory (Railway)",
                 "last_update": bsr_cache['last_update'].isoformat(),
                 "available_countries": list(bsr_cache['data'].keys()),
+                "cache_storage": "Memory (Railway compatible)",
                 "timestamp": datetime.now().isoformat()
             })
         else:
             return jsonify({
                 "status": "error",
                 "message": "Failed to refresh BSR data",
+                "cache_storage": "Memory (Railway compatible)",
                 "timestamp": datetime.now().isoformat()
             }), 500
             
     except Exception as e:
         logger.error(f"❌ Error in BSR refresh endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route('/cache_status', methods=['GET'])
+def api_cache_status():
+    """Get detailed cache status for Railway monitoring"""
+    logger.info("Cache status API request received")
+    
+    try:
+        return jsonify({
+            "deployment_platform": "Railway",
+            "cache_type": "Memory-based (ephemeral file system compatible)",
+            "bsr_cache": {
+                "status": "active" if bsr_cache['data'] else "empty",
+                "last_update": bsr_cache['last_update'].isoformat() if bsr_cache['last_update'] else None,
+                "cache_expired": is_bsr_cache_expired(),
+                "countries_loaded": list(bsr_cache['data'].keys()),
+                "total_categories": sum(len(data) for data in bsr_cache['data'].values()),
+                "cache_duration_hours": BSR_CACHE_DURATION / 3600
+            },
+            "exchange_rate_cache": {
+                "status": "active" if exchange_rates_cache['rates'] else "empty",
+                "last_update": exchange_rates_cache['last_update'].isoformat() if exchange_rates_cache['last_update'] else None,
+                "cache_expired": is_exchange_rate_cache_expired(),
+                "cached_pairs": len(exchange_rates_cache['rates']),
+                "supported_currencies": SUPPORTED_CURRENCIES,
+                "cache_duration_hours": exchange_rates_cache['cache_duration'] / 3600
+            },
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in cache status endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
@@ -838,5 +896,5 @@ def handle_exception(e):
 # --- Server Start ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5003))
-    logger.info(f"Starting Flask server on port {port}")
+    logger.info(f"Starting Flask server on Railway (port {port})")
     app.run(host='0.0.0.0', port=port, debug=False)
