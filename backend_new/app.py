@@ -482,15 +482,13 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         bsr_info = {}
 
         # Adım 1: BİRLEŞTİRİLMİŞ VE ETKİN API ÇAĞRISI
-        # Tüm temel bilgiler, BSR ve Kategori burada tek seferde alınır
-        logger.info("🔍 Step 1: Fetching main product data, BSR, and category with a single call...")
+        logger.info("🔍 Step 1: Fetching main product data, BSR, and category...")
         try:
             catalog_response = catalog_api.get_catalog_item(
                 asin, 
                 includedData=['summaries', 'attributes', 'identifiers', 'images', 'productTypes', 'salesRanks']
             )
             
-            # Temel Bilgiler
             summary = catalog_response.payload.get('summaries', [{}])[0]
             result_data['asin'] = asin
             result_data['title'] = summary.get('itemName', 'N/A')
@@ -499,9 +497,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             result_data['ean'] = next((i['identifier'] for i in catalog_response.payload.get('identifiers', [{}])[0].get('identifiers', []) if i['identifierType'] == 'EAN'), 'N/A')
             
             logger.info(f"Product: {result_data['title'][:50]}...")
-            logger.info(f"Brand: {result_data['brand']}")
 
-            # BSR ve Ana Kategori
             sales_ranks_data = catalog_response.payload.get('salesRanks', [])
             if sales_ranks_data:
                 ranks_list = sales_ranks_data[0].get('ranks', [])
@@ -515,7 +511,6 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             
             result_data['bsr_info'] = bsr_info if bsr_info else None
 
-            # Boyutlar ve Ağırlık
             attributes_data = catalog_response.payload.get('attributes', {})
             package_dims = attributes_data.get('item_package_dimensions', [{}])[0]
             if package_dims and 'value' in package_dims.get('length', {}):
@@ -534,69 +529,57 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 result_data['packageWeight'] = f"{weight_gr:.0f} gr"
             else:
                 result_data['packageWeight'] = "N/A"
-
         except Exception as e:
             logger.error(f"❌ Error in main catalog/BSR step: {str(e)}")
             result_data.update({'title': 'N/A', 'brand': 'N/A', 'bsr_info': None})
 
-
-        # Adım 2: KISITLAMALAR (DOKUNULMADI)
+        # Adım 2: KISITLAMALAR
         logger.info("🚫 Step 2: Checking selling restrictions...")
         try:
             restrictions_response = restrictions_api.get_listings_restrictions(asin=asin, sellerId=seller_id, conditionType='new_new')
             restrictions = restrictions_response.payload.get('restrictions', [])
             result_data['isSellable'] = not bool(restrictions)
             result_data['restrictionReasons'] = [reason.get('message') for r in restrictions for reason in r.get('reasons', [])]
-            logger.info(f"✅ Sellable: {result_data['isSellable']}")
         except Exception as e:
             logger.error(f"❌ Error checking restrictions: {str(e)}")
             result_data['isSellable'] = None
-            result_data['restrictionReasons'] = []
         
-        # Adım 3: TEKLİFLER (DOKUNULMADI)
+        # Adım 3: TEKLİFLER
         logger.info("💰 Step 3: Fetching offers and pricing...")
         buybox_price = None
         currency_code = None
         try:
             offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
             offers = offers_response.payload.get('Offers', [])
-            processed_offers = sorted([o for o in offers], key=lambda x: float(x.get('ListingPrice', {}).get('Amount', float('inf'))))
-            result_data['offers'] = processed_offers
+            result_data['offers'] = sorted([o for o in offers], key=lambda x: float(x.get('ListingPrice', {}).get('Amount', float('inf'))))
             
-            buybox_offer = next((o for o in processed_offers if o.get('IsBuyBoxWinner')), None)
+            buybox_offer = next((o for o in result_data['offers'] if o.get('IsBuyBoxWinner')), None)
             if buybox_offer:
                 buybox_price = float(buybox_offer['ListingPrice']['Amount'])
                 currency_code = buybox_offer['ListingPrice']['CurrencyCode']
-            elif processed_offers:
-                buybox_price = float(processed_offers[0]['ListingPrice']['Amount'])
-                currency_code = processed_offers[0]['ListingPrice']['CurrencyCode']
+            elif result_data['offers']:
+                buybox_price = float(result_data['offers'][0]['ListingPrice']['Amount'])
+                currency_code = result_data['offers'][0]['ListingPrice']['CurrencyCode']
             
             result_data['buyboxPrice'] = buybox_price
             result_data['currencyCode'] = currency_code
-            logger.info(f"✅ Offers processed. Buybox Price: {buybox_price} {currency_code}")
         except Exception as e:
             logger.error(f"❌ Error fetching offers: {str(e)}")
 
-        # Adım 4: BSR ANALİZİ (YENİ VERİYE GÖRE BASİTLEŞTİRİLDİ)
+        # Adım 4: BSR ANALİZİ
         logger.info("🎯 Step 4: Performing BSR Analysis...")
         if result_data.get('bsr_info'):
-            bsr_data_for_marketplace = get_bsr_data().get(marketplace_str.upper(), {})
-            matched_category = match_category_to_bsr_table(bsr_info['category'], bsr_data_for_marketplace)
-            
+            bsr_data = BSR_TABLES.get(marketplace_str.upper(), {})
+            matched_category = match_category_to_bsr_table(bsr_info['category'], bsr_data)
             if matched_category:
-                bsr_percentage = calculate_bsr_percentage(bsr_info['rank'], bsr_data_for_marketplace[matched_category])
-                result_data['bsr_analysis'] = {
-                    'matched_category': matched_category,
-                    'bsr_percentage': bsr_percentage,
-                    'enhanced_display': bsr_percentage.get('display')
-                }
-                logger.info(f"✅ BSR Analysis Complete: {bsr_percentage.get('display')}")
+                bsr_percentage = calculate_bsr_percentage(bsr_info['rank'], bsr_data[matched_category])
+                result_data['bsr_analysis'] = { 'enhanced_display': bsr_percentage.get('display') }
             else:
-                result_data['bsr_analysis'] = {'enhanced_display': f"#{bsr_info.get('rank')} (Category '{bsr_info.get('category')}' not in BSR table)"}
+                result_data['bsr_analysis'] = {'enhanced_display': f"#{bsr_info.get('rank')} (Category not in BSR table)"}
         else:
             result_data['bsr_analysis'] = {'enhanced_display': "BSR not available"}
 
-        # Adım 5: ÜCRETLER (DOKUNULMADI - DETAYLI PARSING KORUNDU)
+        # Adım 5: ÜCRETLER (DETAYLI PARSING İLE)
         logger.info("🧮 Step 5: Calculating fees...")
         if buybox_price and currency_code:
             try:
@@ -606,12 +589,10 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                     fees_estimate = fees_result.get('FeesEstimate', {})
                     total_fees = fees_estimate.get('TotalFeesEstimate', {}).get('Amount', 0.0)
                     fee_details = fees_estimate.get('FeeDetailList', [])
-                    # --- SİZİN İSTEDİĞİNİZ DETAYLI VERİLER BURADA KORUNDU ---
                     result_data['totalFees'] = total_fees
                     result_data['referralFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "ReferralFee"), 0.0)
                     result_data['fbaFee'] = next((f.get('FeeAmount', {}).get('Amount', 0.0) for f in fee_details if f.get('FeeType') == "FBAFees"), 0.0)
                     result_data['netProfit'] = buybox_price - total_fees
-                    logger.info(f"✅ Fees calculated. Total: {total_fees}, Referral: {result_data['referralFee']}, FBA: {result_data['fbaFee']}")
                 else:
                     result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
             except Exception as e:
@@ -619,13 +600,19 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         else:
             result_data.update({'totalFees': None, 'referralFee': None, 'fbaFee': None, 'netProfit': None})
 
-        # Adım 6: PARA BİRİMİ ÇEVRİMİ (DOKUNULMADI)
+        # Adım 6: PARA BİRİMİ ÇEVRİMİ (EKSİKSİZ)
         logger.info("💱 Step 6: Adding currency conversion data...")
         if buybox_price and currency_code:
+            result_data['originalCurrency'] = currency_code
+            result_data['originalPrice'] = buybox_price
             result_data['convertedPrices'] = get_converted_prices(buybox_price, currency_code)
-            # ...diğer çevrimler...
+            result_data['exchangeRates'] = get_exchange_rates_for_currency(currency_code)
+            if result_data.get('totalFees'):
+                result_data['convertedTotalFees'] = get_converted_prices(result_data['totalFees'], currency_code)
+            if result_data.get('netProfit'):
+                result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
         
-        result_data['bsr_data'] = get_bsr_data().get(marketplace_str.upper(), {})
+        result_data['bsr_data'] = BSR_TABLES.get(marketplace_str.upper(), {})
         logger.info("✅ Product details fetched successfully.")
         return result_data
 
