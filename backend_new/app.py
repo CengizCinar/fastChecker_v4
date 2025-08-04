@@ -701,21 +701,21 @@ def api_get_product_details(asin):
 def api_get_eu_business_prices(asin):
     logger.info(f"EU Business Price request received for ASIN: {asin}")
     
-    # Query parametrelerinden marketleri al, yoksa varsayılanları kullan
     markets_str = request.args.get('markets', 'DE,FR,IT,ES,GB')
     markets = [m.strip().upper() for m in markets_str.split(',')]
     
     all_prices = []
 
     for market_code in markets:
-        logger.info(f"Checking B2B prices for {asin} in {market_code}...")
-        
-        credentials, seller_id, error = get_credentials_for_marketplace(market_code)
-        if error:
-            logger.warning(f"Skipping {market_code}: {error}")
-            continue
-
+        # --- YENİ EKLENEN HATA YÖNETİMİ BAŞLANGICI ---
         try:
+            logger.info(f"Checking B2B prices for {asin} in {market_code}...")
+            
+            credentials, seller_id, error = get_credentials_for_marketplace(market_code)
+            if error:
+                logger.warning(f"Skipping {market_code}: {error}")
+                continue
+
             marketplace = getattr(Marketplaces, market_code)
             products_api = Products(credentials=credentials, marketplace=marketplace)
 
@@ -731,20 +731,17 @@ def api_get_eu_business_prices(asin):
                 logger.info(f"No B2B offers found for {asin} in {market_code}.")
                 continue
 
-            # Bu marketteki en düşük fiyatı ve moq'u bul
             best_price_for_market = float('inf')
             moq_for_best_price = 1
-            currency_for_best_price = "EUR" # Varsayılan
+            currency_for_best_price = "EUR"
 
             for offer in offers:
-                # Temel liste fiyatını kontrol et
                 listing_price = float(offer.get('ListingPrice', {}).get('Amount', float('inf')))
                 if listing_price < best_price_for_market:
                     best_price_for_market = listing_price
-                    moq_for_best_price = 1 # Temel fiyat için MOQ her zaman 1'dir
+                    moq_for_best_price = 1
                     currency_for_best_price = offer.get('ListingPrice', {}).get('CurrencyCode', currency_for_best_price)
 
-                # Miktar indirimlerini kontrol et
                 qty_discounts = offer.get('quantityDiscountPrices', [])
                 for discount in qty_discounts:
                     discount_price = float(discount.get('price', {}).get('Amount', float('inf')))
@@ -763,11 +760,15 @@ def api_get_eu_business_prices(asin):
                 logger.info(f"✅ Found best B2B price in {market_code}: {best_price_for_market} {currency_for_best_price} (MOQ: {moq_for_best_price})")
 
         except SellingApiException as e:
+            # Bir markette hata olursa, hatayı logla ama döngüye devam et
             logger.error(f"❌ SP-API Error for {asin} in {market_code}: {e}")
         except Exception as e:
+            # Beklenmedik bir hata olursa da logla ve devam et
             logger.error(f"❌ Unexpected error for {asin} in {market_code}: {e}")
+        # --- YENİ EKLENEN HATA YÖNETİMİ SONU ---
 
-    return jsonify({"asin": asin, "prices": all_prices})    
+    # Döngü bittikten sonra, başarıyla toplanan tüm fiyatları döndür
+    return jsonify({"asin": asin, "prices": all_prices})   
 
 @app.route('/exchange_rates', methods=['GET'])
 def api_get_exchange_rates():
