@@ -62,14 +62,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // --- Ürün Sayfası (Content Script) İşlevleri ---
-    if (request.action === 'fetchProductDetails') {
+       // --- Ürün Sayfası İçin TEK BİR İSTEK ---
+       if (request.action === 'fetchProductDetails') {
         const { asin, marketplace } = request;
         const tabId = sender.tab.id;
 
+        // Artık sadece bu tek endpoint'i çağırıyoruz
         fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${marketplace}`)
             .then(response => response.json())
             .then(data => {
+                // Gelen tek ve büyük veri paketini content.js'e yolluyoruz
                 chrome.tabs.sendMessage(tabId, { action: 'displayProductDetails', asin: asin, data: data });
                 sendResponse({ success: true });
             })
@@ -80,29 +82,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Asenkron
     }
 
-    // --- EU FİYAT ALMA MANTIĞI (API İLE) ---
-    if (request.action === 'fetchEuMarketPrices' && request.asin) {
-        const { asin, markets } = request;
-        const tabId = sender.tab.id;
-        
-        // --- DEĞİŞİKLİK BURADA ---
-        // Varsayılan market listesinden 'GB' kaldırıldı.
-        const marketsToFetch = markets || ['DE', 'FR', 'IT', 'ES'];
-        const marketsQuery = marketsToFetch.join(',');
-        
-        fetch(`https://web-production-e38b7.up.railway.app/get_eu_business_prices/${asin}?markets=${marketsQuery}`)
-            .then(response => response.json())
-            .then(data => {
-                chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: data.prices });
-                sendResponse({ success: true });
-            })
-            .catch(error => {
-                console.error('BG: EU Business Fiyatları alınamadı:', error);
-                chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: [] });
-                sendResponse({ success: false, error: error.message });
-            });
-        return true; // Asenkron
-    }
+    // fetchEuMarketPrices için olan "if" bloğu tamamen silindi.
 });
 
 

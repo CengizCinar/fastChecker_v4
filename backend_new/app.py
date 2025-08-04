@@ -520,7 +520,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 result_data['dimensions'] = f"{length:.1f} x {width:.1f} x {height:.1f} cm"
             else:
                 result_data['dimensions'] = "N/A"
-            
+
             package_weight = attributes_data.get('item_package_weight', [{}])[0]
             if package_weight and 'value' in package_weight:
                 weight_value = package_weight['value']
@@ -543,7 +543,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         except Exception as e:
             logger.error(f"❌ Error checking restrictions: {str(e)}")
             result_data['isSellable'] = None
-        
+
         # Adım 3: TEKLİFLER
         logger.info("💰 Step 3: Fetching offers and pricing...")
         buybox_price = None
@@ -612,8 +612,59 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             if result_data.get('netProfit'):
                 result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
         
+        # Adım 7: EU Business Fiyatlarını Al
+        logger.info("🇪🇺 Step 7: Fetching EU Business Prices...")
+        eu_markets = ['DE', 'FR', 'IT', 'ES']
+        eu_business_prices = []
+        for market_code in eu_markets:
+            try:
+                # EU marketleri için her zaman EU credentials kullan
+                eu_credentials, eu_seller_id, eu_error = get_credentials_for_marketplace(market_code)
+                if eu_error:
+                    logger.warning(f"Skipping EU B2B for {market_code}: {eu_error}")
+                    continue
+
+                eu_marketplace = getattr(Marketplaces, market_code)
+                # Yeni bir Products API istemcisi oluştur
+                eu_products_api = Products(credentials=eu_credentials, marketplace=eu_marketplace)
+                
+                offers_response = eu_products_api.get_item_offers(asin, "New", MarketplaceId=eu_marketplace.marketplace_id, CustomerType='Business')
+                
+                offers = offers_response.payload.get('Offers', [])
+                if not offers: continue
+
+                best_price_for_market = float('inf')
+                moq_for_best_price = 1
+                currency_for_best_price = "EUR"
+
+                for offer in offers:
+                    listing_price = float(offer.get('ListingPrice', {}).get('Amount', float('inf')))
+                    if listing_price < best_price_for_market:
+                        best_price_for_market = listing_price
+                        moq_for_best_price = 1
+                        currency_for_best_price = offer.get('ListingPrice', {}).get('CurrencyCode', currency_for_best_price)
+
+                    for discount in offer.get('quantityDiscountPrices', []):
+                        discount_price = float(discount.get('price', {}).get('Amount', float('inf')))
+                        if discount_price < best_price_for_market:
+                            best_price_for_market = discount_price
+                            moq_for_best_price = discount.get('quantityTier', moq_for_best_price)
+                
+                if best_price_for_market != float('inf'):
+                    eu_business_prices.append({
+                        "market": market_code, "currency": currency_for_best_price,
+                        "moq": moq_for_best_price, "price": best_price_for_market
+                    })
+            except Exception as e:
+                logger.error(f"❌ Error fetching B2B price for {market_code}: {e}")
+        
+        result_data['eu_business_prices'] = eu_business_prices
+        
         result_data['bsr_data'] = BSR_TABLES.get(marketplace_str.upper(), {})
-        logger.info("✅ Product details fetched successfully.")
+        
+        # --- DÜZELTİLMİŞ YER ---
+        # Tüm veriler toplandıktan sonra fonksiyonun en sonunda tek bir return olmalı
+        logger.info("✅ All product details fetched successfully.")
         return result_data
 
     except SellingApiException as e:
@@ -621,9 +672,9 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         logger.error(f"❌ Amazon SP API Error: {error_message}")
         return {"error": f"API Error: {error_message}"}
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {str(e)}")
+        logger.error(f"❌ Unexpected error in get_full_product_details_as_json: {str(e)}")
         logger.error(traceback.format_exc())
-        return {"error": f"An unexpected server error occurred: {str(e)}"}
+        return {"error": "An unexpected server error occurred."}
 
 # --- API Endpoints ---
 @app.route('/')

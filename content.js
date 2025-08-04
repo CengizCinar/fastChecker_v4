@@ -277,7 +277,7 @@ function updateUI(container, data, error = null) {
         mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
         return;
     }
-
+    
     productData = data;
     const offers = (data.offers || []).filter(Boolean);
     const defaultCurrency = data.currencyCode || 'USD';
@@ -301,7 +301,7 @@ function updateUI(container, data, error = null) {
     mainView.innerHTML = `
         <div class="fc-header"><span>✨ FastChecker AI Analysis</span><span class="fc-settings-icon">⚙️</span></div>
         <div class="fc-card fc-main-info">
-             <div class="fc-main-info-3col">
+            <div class="fc-main-info-3col">
                 <div class="fc-main-col fc-main-img"><img class="fc-main-info-img" src="${data.imageUrl || ''}" alt=""></div>
                 <div class="fc-main-col fc-main-asin-ean">
                     <div class="fc-main-asin"><b>ASIN:</b> ${data.asin || 'N/A'}</div>
@@ -318,7 +318,7 @@ function updateUI(container, data, error = null) {
             </div>
             <div class="fc-main-restriction">${sellableStatus}</div>
         </div>
-        <div class="fc-card fc-finance-calculator"> 
+        <div class="fc-card fc-finance-calculator">
             <div class="fc-card-header"><span>Profit Calculator</span></div>
             <div class="fc-input-row"><div class="input-group"><label for="bsrInput">BSR</label><input type="text" id="bsrInput" value="N/A" readonly></div><div class="input-group"><label for="estimatedSalesInput">Estimated Sales</label><input type="text" id="estimatedSalesInput" value="N/A" readonly></div></div>
             <div class="fc-input-row"><div class="input-group"><label for="costInput">Cost</label><input type="text" inputmode="decimal" id="costInput" value="0"></div><div class="input-group"><label for="saleInput">Sale</label><input type="text" inputmode="decimal" id="saleInput" value="0"></div></div>
@@ -335,7 +335,7 @@ function updateUI(container, data, error = null) {
             <div class="fc-eu-prices-list"><div class="fc-no-eu-price">Fiyat verisi yok.</div></div>
         </div>
     `;
-    
+
     mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
     
     // --- YENİ VE BASİT BSR MANTIĞI ---
