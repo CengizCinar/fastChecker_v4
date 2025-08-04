@@ -1,4 +1,4 @@
-// background.js (Nihai ve Temiz Hali)
+// background.js (Nihai ve Sadece DE, FR, IT, ES için çalışan hali)
 
 // Yan panel işlevleri için gerekli olan helper scripti import et
 importScripts('sp-api-helper.js');
@@ -33,10 +33,10 @@ function connectWebSocket() {
 
 // --- Başlangıç ve Kurulum Olayları ---
 chrome.runtime.onInstalled.addListener(() => {
-    connectWebSocket(); // Sadece yan panelin WS'sini bağlıyoruz.
+    connectWebSocket();
 });
 chrome.runtime.onStartup.addListener(() => {
-    connectWebSocket(); // Sadece yan panelin WS'sini bağlıyoruz.
+    connectWebSocket();
 });
 
 // Yan paneli açmak için action butonu
@@ -80,23 +80,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Asenkron
     }
 
-    // --- YENİ EU FİYAT ALMA MANTIĞI (API İLE) ---
+    // --- EU FİYAT ALMA MANTIĞI (API İLE) ---
     if (request.action === 'fetchEuMarketPrices' && request.asin) {
         const { asin, markets } = request;
         const tabId = sender.tab.id;
         
-        const marketsQuery = (markets || ['DE', 'FR', 'IT', 'ES', 'GB']).join(',');
+        // --- DEĞİŞİKLİK BURADA ---
+        // Varsayılan market listesinden 'GB' kaldırıldı.
+        const marketsToFetch = markets || ['DE', 'FR', 'IT', 'ES'];
+        const marketsQuery = marketsToFetch.join(',');
         
         fetch(`https://web-production-e38b7.up.railway.app/get_eu_business_prices/${asin}?markets=${marketsQuery}`)
             .then(response => response.json())
             .then(data => {
-                // Gelen veriyi (data.prices) doğrudan content.js'e gönderiyoruz.
                 chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: data.prices });
                 sendResponse({ success: true });
             })
             .catch(error => {
                 console.error('BG: EU Business Fiyatları alınamadı:', error);
-                // Hata durumunda boş bir dizi göndererek UI'ın "Veri yok" demesini sağlıyoruz.
                 chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: [] });
                 sendResponse({ success: false, error: error.message });
             });

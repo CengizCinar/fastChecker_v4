@@ -439,7 +439,7 @@ function renderEuMarketPrices(container, asin, prices) {
     chrome.runtime.sendMessage({
         action: 'fetchEuMarketPrices',
         asin: asin,
-        markets: ['DE', 'FR', 'IT', 'ES', 'GB']
+        markets: ['DE', 'FR', 'IT', 'ES']
     });
 
     chrome.runtime.onMessage.addListener(function messageListener(request, sender, sendResponse) {
