@@ -266,53 +266,7 @@ function formatCurrency(amount, currency) {
     }
 }
 
-// --- BSR ÇEKME (ÇOK DİLLİ DESTEK) ---
-function getBSRDataFromPage() {
-    const bsrKeywords = {
-        'US': ['Best Sellers Rank', 'Best-Sellers Rank'],
-        'CA': ['Best Sellers Rank', 'Best-Sellers Rank'],
-        'GB': ['Best Sellers Rank', 'Best-Sellers Rank'],
-        'DE': ['Amazon Bestseller-Rang', 'Bestseller-Rang'],
-        'FR': ["Classement des meilleures ventes d'Amazon"],
-        'IT': ["Posizione nella classifica Bestseller di Amazon"],
-        'ES': ["Clasificación en los más vendidos de Amazon"],
-    };
-    const categoryKeywords = {
-        'US': 'in', 'CA': 'in', 'GB': 'in', 'DE': 'in',
-        'FR': 'dans la boutique', 'IT': 'in', 'ES': 'en',
-    };
 
-    const currentMarketplace = getMarketplaceFromUrl();
-    const keywords = bsrKeywords[currentMarketplace] || bsrKeywords['US'];
-    const catKeyword = categoryKeywords[currentMarketplace] || 'in';
-
-    let bsrText = 'N/A', bsrNumber = null, categoryName = 'N/A';
-
-    const elements = Array.from(document.querySelectorAll('th, li, span, div'));
-    let foundElement = null;
-
-    for (const keyword of keywords) {
-        foundElement = elements.find(el => el.textContent.trim().includes(keyword));
-        if (foundElement) break;
-    }
-
-    if (foundElement) {
-        bsrText = foundElement.tagName === 'TH' ? foundElement.nextElementSibling.textContent.trim() : foundElement.textContent.trim();
-        
-        const bsrMatch = bsrText.match(/#?([\d,.]+)/);
-        if (bsrMatch) {
-            bsrNumber = parseInt(bsrMatch[1].replace(/[.,]/g, ''), 10);
-        }
-
-        const categoryRegex = new RegExp(`${catKeyword}\\s+([^\\(]+)`);
-        const categoryMatch = bsrText.match(categoryRegex);
-        if (categoryMatch && categoryMatch[1]) {
-            categoryName = categoryMatch[1].trim();
-        }
-    }
-
-    return { bsrText, bsrNumber, categoryName };
-}
 
 // --- ANA UI GÜNCELLEME ---
 function updateUI(container, data, error = null) {
@@ -384,38 +338,15 @@ function updateUI(container, data, error = null) {
     
     mainView.querySelector('.fc-settings-icon').addEventListener('click', () => toggleView(container));
     
-    // BSR'ı işle ve UI'a yaz (Yüzdelik dilim ile birlikte)
-    const { bsrNumber, categoryName } = getBSRDataFromPage();
+    // --- YENİ VE BASİT BSR MANTIĞI ---
+    // Veriyi doğrudan backend'den al, frontend'de işlem yapma.
     const bsrInput = mainView.querySelector('#bsrInput');
-
-    const currentMarketplace = getMarketplaceFromUrl();
-    const marketplaceBsrData = data.bsr_data ? data.bsr_data[currentMarketplace.toUpperCase()] : null;
-
-    function formatBsr(num) {
-        if (!num || isNaN(num)) return 'N/A';
-        return num < 1000 ? num.toString() : `${Math.floor(num / 1000)}k`;
-    }
-
-    function calculateBsrPercentage(bsr, category, bsrData) {
-        if (!bsr || !category || !bsrData || !bsrData[category]) return ''; // bsrData is now the marketplace-specific data
-        const categoryData = bsrData[category];
-        const thresholds = {
-            '0.5%': categoryData['Top 0.5% BSR'], '1%': categoryData['Top 1% BSR'],
-            '2%': categoryData['Top 2% BSR'],   '3%': categoryData['Top 3% BSR'],
-            '5%': categoryData['Top 5% BSR'],   '10%': categoryData['Top 10% BSR'],
-        };
-        for (const [perc, value] of Object.entries(thresholds)) {
-            if (bsr <= value) return ` (${perc})`;
-        }
-        return '';
-    }
-
-    if (bsrInput && bsrNumber) {
-        const percentageString = calculateBsrPercentage(bsrNumber, categoryName, marketplaceBsrData);
-        bsrInput.value = `${formatBsr(bsrNumber)}${percentageString}`;
-    } else if(bsrInput) {
+    if (bsrInput && data.bsr_analysis && data.bsr_analysis.enhanced_display) {
+        bsrInput.value = data.bsr_analysis.enhanced_display;
+    } else if (bsrInput) {
         bsrInput.value = 'N/A';
     }
+    // --- BSR MANTIĞI SONU ---
 
     // Hesaplayıcıyı kur
     const costInput = mainView.querySelector('#costInput');

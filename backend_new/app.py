@@ -110,9 +110,22 @@ def match_category_to_bsr_table(amazon_category, bsr_table):
     return None
 
 def calculate_bsr_percentage(bsr_rank, bsr_category_data):
-    """Calculate BSR percentage based on rank and thresholds"""
+    """Calculate BSR percentage and format the display string."""
     if not bsr_rank or not bsr_category_data:
         return None
+
+    # --- YENİ EKLENEN BÖLÜM: BSR'ı formatlama ---
+    def format_bsr_for_display(rank):
+        if not isinstance(rank, (int, float)):
+            return "N/A"
+        if rank < 1000:
+            return str(rank)
+        else:
+            # 1000'e böl, tam sayı kısmını al ve sonuna 'k' ekle.
+            return f"{int(rank / 1000)}k"
+            
+    formatted_rank = format_bsr_for_display(bsr_rank)
+    # --- YENİ BÖLÜM SONU ---
     
     thresholds = []
     for threshold_name, threshold_value in bsr_category_data.items():
@@ -130,7 +143,8 @@ def calculate_bsr_percentage(bsr_rank, bsr_category_data):
                 'percentage': percentage,
                 'threshold_name': threshold_name,
                 'threshold_value': threshold_value,
-                'display': f"#{bsr_rank} (Top {percentage}%)"
+                # DEĞİŞİKLİK: Formatlanmış rank kullanılıyor ve '#' kaldırıldı.
+                'display': f"{formatted_rank} (Top {percentage}%)"
             }
     
     if thresholds:
@@ -139,14 +153,16 @@ def calculate_bsr_percentage(bsr_rank, bsr_category_data):
             'percentage': f">{worst_threshold[0]}",
             'threshold_name': "Beyond thresholds",
             'threshold_value': worst_threshold[1],
-            'display': f"#{bsr_rank} (>Top {worst_threshold[0]}%)"
+            # DEĞİŞİKLİK: Formatlanmış rank kullanılıyor ve '#' kaldırıldı.
+            'display': f"{formatted_rank} (>Top {worst_threshold[0]}%)"
         }
     
     return {
         'percentage': "Unknown",
         'threshold_name': "No thresholds available",
         'threshold_value': 0,
-        'display': f"#{bsr_rank} (Unknown %)"
+        # DEĞİŞİKLİK: Formatlanmış rank kullanılıyor ve '#' kaldırıldı.
+        'display': f"{formatted_rank} (Unknown %)"
     }
 
 # --- BSR Cache Functions (Railway Memory-based) ---
