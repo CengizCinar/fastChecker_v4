@@ -1,19 +1,13 @@
-// background.js
+// background.js (Nihai ve Temiz Hali)
 
 // Yan panel işlevleri için gerekli olan helper scripti import et
 importScripts('sp-api-helper.js');
 
 // --- Global Değişkenler ---
-let ws; // Yan panel (manuel kontrol) için WebSocket
+let ws; // SADECE Yan panel (manuel kontrol) için WebSocket
 let isCheckStopped = false; // Yan paneldeki kontrolü durdurmak için flag
 
-let priceTrackerWs; // Ürün sayfası (EU fiyatları) için WebSocket
-let priceTrackerMessageQueue = [];
-let asinToTabIdMap = {};
-
-// --- WebSocket Bağlantı Fonksiyonları ---
-
-// 1. Yan Panel için orijinal WebSocket
+// --- WebSocket Bağlantı Fonksiyonu (Sadece Yan Panel için) ---
 function connectWebSocket() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;
@@ -36,43 +30,13 @@ function connectWebSocket() {
     ws.onerror = (err) => { console.error("BG: Manuel Kontrol WS Hatası:", err); ws.close(); };
 }
 
-// 2. Ürün Sayfası (EU Fiyatları) için yeni WebSocket
-function connectPriceTrackerWebSocket() {
-    if (priceTrackerWs && (priceTrackerWs.readyState === WebSocket.OPEN || priceTrackerWs.readyState === WebSocket.CONNECTING)) {
-        return;
-    }
-    const wsUrl = "wss://eu-price-automation-production.up.railway.app/";
-    priceTrackerWs = new WebSocket(wsUrl);
-    priceTrackerWs.onopen = () => {
-        console.log("BG: Fiyat Takip WS Bağlantısı Kuruldu.");
-        while (priceTrackerMessageQueue.length > 0) {
-            priceTrackerWs.send(JSON.stringify(priceTrackerMessageQueue.shift()));
-        }
-    };
-    priceTrackerWs.onmessage = (event) => {
-        try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'eu-market-result' && msg.asin && msg.prices) {
-                const tabId = asinToTabIdMap[msg.asin];
-                if (tabId) {
-                    chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: msg.asin, prices: msg.prices });
-                    delete asinToTabIdMap[msg.asin];
-                }
-            }
-        } catch (e) { console.error('BG: Fiyat WS Mesajı İşlenemedi:', e); }
-    };
-    priceTrackerWs.onclose = () => { priceTrackerWs = null; setTimeout(connectPriceTrackerWebSocket, 10000); };
-    priceTrackerWs.onerror = (err) => { console.error("BG: Fiyat WS Hatası:", err); priceTrackerWs.close(); };
-}
 
 // --- Başlangıç ve Kurulum Olayları ---
 chrome.runtime.onInstalled.addListener(() => {
-    connectWebSocket();
-    connectPriceTrackerWebSocket();
+    connectWebSocket(); // Sadece yan panelin WS'sini bağlıyoruz.
 });
 chrome.runtime.onStartup.addListener(() => {
-    connectWebSocket();
-    connectPriceTrackerWebSocket();
+    connectWebSocket(); // Sadece yan panelin WS'sini bağlıyoruz.
 });
 
 // Yan paneli açmak için action butonu
@@ -116,22 +80,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true; // Asenkron
     }
 
+    // --- YENİ EU FİYAT ALMA MANTIĞI (API İLE) ---
     if (request.action === 'fetchEuMarketPrices' && request.asin) {
+        const { asin, markets } = request;
         const tabId = sender.tab.id;
-        asinToTabIdMap[request.asin] = tabId;
-        connectPriceTrackerWebSocket();
-        const message = { type: "/eu-market-request", asin: request.asin, markets: request.markets || ['DE', 'FR', 'IT', 'ES', 'NL'] };
-
-        if (priceTrackerWs && priceTrackerWs.readyState === WebSocket.OPEN) {
-            priceTrackerWs.send(JSON.stringify(message));
-        } else {
-            priceTrackerMessageQueue.push(message);
-            if (!priceTrackerWs || priceTrackerWs.readyState === WebSocket.CLOSED) {
-                connectPriceTrackerWebSocket();
-            }
-        }
-        sendResponse({ success: true });
-        return true; 
+        
+        const marketsQuery = (markets || ['DE', 'FR', 'IT', 'ES', 'GB']).join(',');
+        
+        fetch(`https://web-production-e38b7.up.railway.app/get_eu_business_prices/${asin}?markets=${marketsQuery}`)
+            .then(response => response.json())
+            .then(data => {
+                // Gelen veriyi (data.prices) doğrudan content.js'e gönderiyoruz.
+                chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: data.prices });
+                sendResponse({ success: true });
+            })
+            .catch(error => {
+                console.error('BG: EU Business Fiyatları alınamadı:', error);
+                // Hata durumunda boş bir dizi göndererek UI'ın "Veri yok" demesini sağlıyoruz.
+                chrome.tabs.sendMessage(tabId, { action: 'euMarketPrices', asin: asin, prices: [] });
+                sendResponse({ success: false, error: error.message });
+            });
+        return true; // Asenkron
     }
 });
 
