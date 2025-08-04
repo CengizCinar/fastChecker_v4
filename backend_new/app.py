@@ -575,7 +575,7 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 bsr_percentage = calculate_bsr_percentage(bsr_info['rank'], bsr_data[matched_category])
                 result_data['bsr_analysis'] = { 'enhanced_display': bsr_percentage.get('display') }
             else:
-                result_data['bsr_analysis'] = {'enhanced_display': f"#{bsr_info.get('rank')} (Category not in BSR table)"}
+                result_data['bsr_analysis'] = {'enhanced_display': "Unknown"}
         else:
             result_data['bsr_analysis'] = {'enhanced_display': "BSR not available"}
 
