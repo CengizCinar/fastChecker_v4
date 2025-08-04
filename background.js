@@ -63,15 +63,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
        // --- Ürün Sayfası İçin TEK BİR İSTEK ---
-       if (request.action === 'fetchProductDetails') {
+    if (request.action === 'fetchProductDetails') {
         const { asin, marketplace } = request;
         const tabId = sender.tab.id;
 
-        // Artık sadece bu tek endpoint'i çağırıyoruz
         fetch(`https://web-production-e38b7.up.railway.app/get_product_details/${asin}?marketplace=${marketplace}`)
             .then(response => response.json())
             .then(data => {
-                // Gelen tek ve büyük veri paketini content.js'e yolluyoruz
                 chrome.tabs.sendMessage(tabId, { action: 'displayProductDetails', asin: asin, data: data });
                 sendResponse({ success: true });
             })
@@ -81,7 +79,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         return true; // Asenkron
     }
-
     // fetchEuMarketPrices için olan "if" bloğu tamamen silindi.
 });
 

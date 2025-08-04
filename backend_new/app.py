@@ -618,14 +618,12 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         eu_business_prices = []
         for market_code in eu_markets:
             try:
-                # EU marketleri için her zaman EU credentials kullan
-                eu_credentials, eu_seller_id, eu_error = get_credentials_for_marketplace(market_code)
+                eu_credentials, _, eu_error = get_credentials_for_marketplace(market_code)
                 if eu_error:
                     logger.warning(f"Skipping EU B2B for {market_code}: {eu_error}")
                     continue
 
                 eu_marketplace = getattr(Marketplaces, market_code)
-                # Yeni bir Products API istemcisi oluştur
                 eu_products_api = Products(credentials=eu_credentials, marketplace=eu_marketplace)
                 
                 offers_response = eu_products_api.get_item_offers(asin, "New", MarketplaceId=eu_marketplace.marketplace_id, CustomerType='Business')
@@ -661,19 +659,11 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
         result_data['eu_business_prices'] = eu_business_prices
         
         result_data['bsr_data'] = BSR_TABLES.get(marketplace_str.upper(), {})
-        
-        # --- DÜZELTİLMİŞ YER ---
-        # Tüm veriler toplandıktan sonra fonksiyonun en sonunda tek bir return olmalı
         logger.info("✅ All product details fetched successfully.")
         return result_data
 
-    except SellingApiException as e:
-        error_message = str(e.payload or e)
-        logger.error(f"❌ Amazon SP API Error: {error_message}")
-        return {"error": f"API Error: {error_message}"}
     except Exception as e:
         logger.error(f"❌ Unexpected error in get_full_product_details_as_json: {str(e)}")
-        logger.error(traceback.format_exc())
         return {"error": "An unexpected server error occurred."}
 
 # --- API Endpoints ---
