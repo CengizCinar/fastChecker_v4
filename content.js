@@ -388,6 +388,16 @@ function updateUI(container, data, error = null) {
     }
     calculateProfit();
     calculateAndDisplayShipping();
+    if (data.eu_business_prices) {
+        renderEuMarketPrices(container, data.asin, data.eu_business_prices);
+    }
+
+    chrome.runtime.sendMessage({
+        action: 'fetchEuMarketPrices',
+        asin: data.asin,
+        markets: ['DE', 'FR', 'IT', 'ES'] // GB olmadan
+    });
+
 }
 
 
@@ -422,7 +432,6 @@ function renderEuMarketPrices(container, asin, prices) {
     }
 }
 
-// --- BAŞLANGIÇ VE MESAJ YÖNETİMİ ---
 (function() {
     const asin = getAsinFromUrl();
     if (!asin) return;
@@ -430,17 +439,14 @@ function renderEuMarketPrices(container, asin, prices) {
     const container = createUIContainer();
     if (!container) return;
 
+    // SADECE ana ürün detaylarını iste
     chrome.runtime.sendMessage({
         action: 'fetchProductDetails',
         asin: asin,
         marketplace: getMarketplaceFromUrl()
     });
 
-    chrome.runtime.sendMessage({
-        action: 'fetchEuMarketPrices',
-        asin: asin,
-        markets: ['DE', 'FR', 'IT', 'ES']
-    });
+    // EU Fiyat isteğini buradan sildik.
 
     chrome.runtime.onMessage.addListener(function messageListener(request, sender, sendResponse) {
         if (request.asin !== asin) return;
