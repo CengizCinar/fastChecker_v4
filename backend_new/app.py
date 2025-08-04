@@ -701,7 +701,7 @@ def api_get_product_details(asin):
 def api_get_eu_business_prices(asin):
     logger.info(f"EU Business Price request received for ASIN: {asin}")
     
-    markets_str = request.args.get('markets', 'DE,FR,IT,ES,GB')
+    markets_str = request.args.get('markets', 'DE,FR,IT,ES')
     markets = [m.strip().upper() for m in markets_str.split(',')]
     
     all_prices = []
