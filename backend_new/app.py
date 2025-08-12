@@ -32,6 +32,79 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# --- VAT Configuration ---
+VAT_RATES = {
+    'DE': {
+        'Books': 0.07,
+        'Grocery & Gourmet Food': 0.07,
+        'default': 0.19
+    },
+    'FR': {
+        'Books': 0.055,
+        'Grocery & Gourmet Food': 0.055,
+        'default': 0.20
+    },
+    'ES': {
+        'Books': 0.10,
+        'Grocery & Gourmet Food': 0.10,
+        'default': 0.21
+    },
+    'IT': {
+        'Books': 0.10,
+        'Grocery & Gourmet Food': 0.10,
+        'default': 0.22
+    }
+}
+
+def get_vat_rate(country_code, category):
+    """Get VAT rate for specific country and category"""
+    if country_code not in VAT_RATES:
+        return 0  # No VAT for non-EU countries
+    
+    country_vat = VAT_RATES[country_code]
+    
+    # Normalize category for matching
+    normalized_category = category.lower() if category else ""
+    
+    # Check for Books category
+    if any(book_keyword in normalized_category for book_keyword in ['book', 'kindle', 'ebook', 'magazine']):
+        return country_vat.get('Books', country_vat['default'])
+    
+    # Check for Grocery category
+    if any(grocery_keyword in normalized_category for grocery_keyword in ['grocery', 'gourmet', 'food', 'beverage', 'health', 'vitamin']):
+        return country_vat.get('Grocery & Gourmet Food', country_vat['default'])
+    
+    # Default rate for all other categories
+    return country_vat['default']
+
+def remove_vat_from_price(price, vat_rate):
+    """Remove VAT from price and return net price"""
+    if not price or not vat_rate:
+        return price
+    
+    # Price including VAT / (1 + VAT rate) = Price excluding VAT
+    net_price = price / (1 + vat_rate)
+    return round(net_price, 2)
+
+def match_category_to_vat_category(amazon_category):
+    """Match Amazon category to VAT categories (Books, Grocery, or Other)"""
+    if not amazon_category:
+        return "Other"
+    
+    category_lower = amazon_category.lower()
+    
+    # Check for Books
+    book_keywords = ['book', 'kindle', 'ebook', 'magazine', 'publication', 'literature']
+    if any(keyword in category_lower for keyword in book_keywords):
+        return "Books"
+    
+    # Check for Grocery & Gourmet Food
+    grocery_keywords = ['grocery', 'gourmet', 'food', 'beverage', 'health', 'vitamin', 'supplement', 'nutrition']
+    if any(keyword in category_lower for keyword in grocery_keywords):
+        return "Grocery & Gourmet Food"
+    
+    return "Other"
+
 # --- Exchange Rate Configuration ---
 SUPPORTED_CURRENCIES = ['EUR', 'USD', 'GBP', 'CAD']
 EXCHANGE_RATE_API_BASE = "https://v6.exchangerate-api.com/v6"
@@ -680,10 +753,16 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             if result_data.get('netProfit'):
                 result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
         
-        # Adım 7: EU Business Fiyatlarını Al
-        logger.info("🇪🇺 Step 7: Fetching EU Business Prices...")
+        # Adım 7: EU Business Fiyatlarını Al (VAT DÜŞÜRME ÖZELLİĞİ EKLENDİ)
+        logger.info("🇪🇺 Step 7: Fetching EU Business Prices with VAT removal...")
         eu_markets = ['DE', 'FR', 'IT', 'ES']
         eu_business_prices = []
+        
+        # BSR'den gelen kategori bilgisini VAT hesaplamalarında kullan
+        product_category = bsr_info.get('category') if bsr_info else None
+        vat_category = match_category_to_vat_category(product_category)
+        logger.info(f"📊 Product VAT Category: {vat_category} (based on '{product_category}')")
+        
         for market_code in eu_markets:
             try:
                 eu_credentials, _, eu_error = get_credentials_for_marketplace(market_code)
@@ -697,7 +776,9 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                 offers_response = eu_products_api.get_item_offers(asin, "New", MarketplaceId=eu_marketplace.marketplace_id, CustomerType='Business')
                 
                 offers = offers_response.payload.get('Offers', [])
-                if not offers: continue
+                if not offers: 
+                    logger.info(f"No B2B offers found for {asin} in {market_code}")
+                    continue
 
                 best_price_for_market = float('inf')
                 moq_for_best_price = 1
@@ -717,17 +798,42 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                             moq_for_best_price = discount.get('quantityTier', moq_for_best_price)
                 
                 if best_price_for_market != float('inf'):
+                    # VAT hesaplama
+                    vat_rate = get_vat_rate(market_code, product_category)
+                    price_without_vat = remove_vat_from_price(best_price_for_market, vat_rate)
+                    
+                    logger.info(f"🏷️ {market_code} B2B Price Analysis:")
+                    logger.info(f"   Original Price: {best_price_for_market} {currency_for_best_price}")
+                    logger.info(f"   VAT Category: {vat_category}")
+                    logger.info(f"   VAT Rate: {vat_rate*100:.1f}%")
+                    logger.info(f"   Price without VAT: {price_without_vat} {currency_for_best_price}")
+                    logger.info(f"   MOQ: {moq_for_best_price}")
+                    
                     eu_business_prices.append({
-                        "market": market_code, "currency": currency_for_best_price,
-                        "moq": moq_for_best_price, "price": best_price_for_market
+                        "market": market_code,
+                        "currency": currency_for_best_price,
+                        "moq": moq_for_best_price,
+                        "price_with_vat": best_price_for_market,
+                        "price_without_vat": price_without_vat,
+                        "vat_rate": vat_rate,
+                        "vat_category": vat_category,
+                        "vat_amount": round(best_price_for_market - price_without_vat, 2)
                     })
+                    
             except Exception as e:
                 logger.error(f"❌ Error fetching B2B price for {market_code}: {e}")
         
         result_data['eu_business_prices'] = eu_business_prices
         
+        # VAT bilgilerini de ekle
+        result_data['vat_info'] = {
+            'product_category': product_category,
+            'vat_category': vat_category,
+            'vat_rates_applied': {market['market']: f"{market['vat_rate']*100:.1f}%" for market in eu_business_prices}
+        }
+        
         result_data['bsr_data'] = BSR_TABLES.get(marketplace_str.upper(), {})
-        logger.info("✅ All product details fetched successfully.")
+        logger.info("✅ All product details fetched successfully with VAT calculations.")
         return result_data
 
     except Exception as e:
@@ -740,7 +846,7 @@ def health_check():
     logger.info("Health check requested")
     return jsonify({
         "status": "OK", 
-        "message": "FastChecker Backend with Enhanced BSR Analysis is running on Railway!",
+        "message": "FastChecker Backend with Enhanced BSR Analysis & VAT Removal is running on Railway!",
         "timestamp": datetime.now().isoformat(),
         "deployment_platform": "Railway",
         "cache_type": "Memory-based (Railway compatible)",
@@ -748,8 +854,15 @@ def health_check():
             "Amazon SP-API BSR extraction",
             "BSR percentage calculation", 
             "Category matching",
-            "Enhanced BSR display format"
+            "Enhanced BSR display format",
+            "EU VAT removal for B2B prices",
+            "Multi-category VAT rate support"
         ],
+        "vat_feature": {
+            "supported_countries": list(VAT_RATES.keys()),
+            "vat_categories": ["Books", "Grocery & Gourmet Food", "Others"],
+            "automatic_category_detection": True
+        },
         "credentials_loaded": bool(na_credentials),
         "eu_credentials_loaded": bool(eu_credentials),
         "bsr_tables_loaded": bool(bsr_cache['data']),
@@ -798,6 +911,10 @@ def api_get_product_details(asin):
         # Log enhanced BSR results
         if data.get('bsr_analysis') and data['bsr_analysis'].get('enhanced_display'):
             logger.info(f"🎯 Enhanced BSR Display: {data['bsr_analysis']['enhanced_display']}")
+            
+        # Log VAT calculations
+        if data.get('eu_business_prices'):
+            logger.info(f"🏷️ VAT Calculations completed for {len(data['eu_business_prices'])} EU markets")
         
         return jsonify(data)
         
@@ -814,9 +931,33 @@ def api_get_eu_business_prices(asin):
     markets = [m.strip().upper() for m in markets_str.split(',')]
     
     all_prices = []
+    
+    # BSR bilgisini almak için önce ürün detaylarını çek (kategori için)
+    main_marketplace = 'DE'  # EU için varsayılan
+    product_category = None
+    
+    try:
+        # Kategori bilgisini almak için catalog API'yi çağır
+        credentials, _, error = get_credentials_for_marketplace(main_marketplace)
+        if not error:
+            marketplace = getattr(Marketplaces, main_marketplace)
+            catalog_api = CatalogItems(credentials=credentials, marketplace=marketplace)
+            catalog_response = catalog_api.get_catalog_item(asin, includedData=['salesRanks'])
+            
+            sales_ranks_data = catalog_response.payload.get('salesRanks', [])
+            if sales_ranks_data:
+                ranks_list = sales_ranks_data[0].get('ranks', [])
+                if ranks_list:
+                    main_rank_info = max(ranks_list, key=lambda x: x.get('rank', 0))
+                    product_category = main_rank_info.get('title')
+                    logger.info(f"📊 Product category detected: {product_category}")
+    except Exception as e:
+        logger.warning(f"Could not fetch category info: {e}")
+
+    vat_category = match_category_to_vat_category(product_category)
+    logger.info(f"🏷️ VAT Category: {vat_category}")
 
     for market_code in markets:
-        # --- YENİ EKLENEN HATA YÖNETİMİ BAŞLANGICI ---
         try:
             logger.info(f"Checking B2B prices for {asin} in {market_code}...")
             
@@ -860,24 +1001,38 @@ def api_get_eu_business_prices(asin):
                         currency_for_best_price = discount.get('price', {}).get('CurrencyCode', currency_for_best_price)
 
             if best_price_for_market != float('inf'):
+                # VAT hesaplama
+                vat_rate = get_vat_rate(market_code, product_category)
+                price_without_vat = remove_vat_from_price(best_price_for_market, vat_rate)
+                
                 all_prices.append({
                     "market": market_code,
                     "currency": currency_for_best_price,
                     "moq": moq_for_best_price,
-                    "price": best_price_for_market
+                    "price_with_vat": best_price_for_market,
+                    "price_without_vat": price_without_vat,
+                    "vat_rate": vat_rate,
+                    "vat_category": vat_category,
+                    "vat_amount": round(best_price_for_market - price_without_vat, 2)
                 })
+                
                 logger.info(f"✅ Found best B2B price in {market_code}: {best_price_for_market} {currency_for_best_price} (MOQ: {moq_for_best_price})")
+                logger.info(f"   Price without VAT ({vat_rate*100:.1f}%): {price_without_vat} {currency_for_best_price}")
 
         except SellingApiException as e:
-            # Bir markette hata olursa, hatayı logla ama döngüye devam et
             logger.error(f"❌ SP-API Error for {asin} in {market_code}: {e}")
         except Exception as e:
-            # Beklenmedik bir hata olursa da logla ve devam et
             logger.error(f"❌ Unexpected error for {asin} in {market_code}: {e}")
-        # --- YENİ EKLENEN HATA YÖNETİMİ SONU ---
 
-    # Döngü bittikten sonra, başarıyla toplanan tüm fiyatları döndür
-    return jsonify({"asin": asin, "prices": all_prices})   
+    return jsonify({
+        "asin": asin, 
+        "prices": all_prices,
+        "vat_info": {
+            "product_category": product_category,
+            "vat_category": vat_category,
+            "vat_rates_applied": {market['market']: f"{market['vat_rate']*100:.1f}%" for market in all_prices}
+        }
+    })
 
 @app.route('/exchange_rates', methods=['GET'])
 def api_get_exchange_rates():
