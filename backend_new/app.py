@@ -72,34 +72,6 @@ MARKETPLACE_REGIONS = {
     'BE': {'region': 'EU', 'marketplace_id': 'AMEN7PMS3EDWL'},
 }
 
-# --- VAT Rates Configuration by Category ID (Language-Independent) ---
-VAT_RATES_BY_ID = {
-    'DE': {'books': 0.07, 'grocery': 0.07, 'default': 0.19},
-    'FR': {'books': 0.055, 'grocery': 0.055, 'default': 0.20},
-    'ES': {'books': 0.10, 'grocery': 0.10, 'default': 0.21},
-    'IT': {'books': 0.10, 'grocery': 0.10, 'default': 0.22}
-}
-
-def calculate_price_without_vat_by_id(price, country_code, category_id):
-    """
-    Calculates the price excluding VAT based on country and a language-independent category ID.
-    """
-    if not price or not country_code or not category_id:
-        return price
-
-    country_rates = VAT_RATES_BY_ID.get(country_code.upper())
-    if not country_rates:
-        return price
-
-    # Kategori ID'sine göre oranı doğrudan al, bulunamazsa 'default' kullan
-    rate_to_apply = country_rates.get(category_id, country_rates['default'])
-    
-    logger.info(f"Applying {rate_to_apply*100}% VAT rate for Category ID '{category_id}' in {country_code}")
-
-    # Net fiyatı hesapla: Brüt Fiyat / (1 + KDV Oranı)
-    net_price = price / (1 + rate_to_apply)
-    return round(net_price, 2)
-
 # --- BSR Analysis Functions --- (Nihai ve Temiz Hali)
 
 def match_category_to_bsr_table(amazon_category, bsr_table):
@@ -530,14 +502,12 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             if sales_ranks_data:
                 ranks_list = sales_ranks_data[0].get('ranks', [])
                 if ranks_list:
-                    # Genellikle ilk rank ana kategoridir ve SP-API'den gelen veride bu en güvenilir yöntemdir.
-                    main_rank_info = ranks_list[0] 
+                    main_rank_info = max(ranks_list, key=lambda x: x.get('rank', 0))
                     bsr_info = {
                         'rank': main_rank_info.get('rank'),
-                        'category': main_rank_info.get('title'),           # Örn: "Libri" (Görüntüleme için kullanılır)
-                        'categoryId': main_rank_info.get('productCategoryId') # Örn: "books" (Mantıksal işlemler için bu kullanılır)
+                        'category': main_rank_info.get('title')
                     }
-                    logger.info(f"✅ BSR/Category Found: #{bsr_info.get('rank')} in '{bsr_info.get('category')}' (ID: {bsr_info.get('categoryId')})")
+                    logger.info(f"✅ BSR and Category Found: #{bsr_info.get('rank')} in '{bsr_info.get('category')}'")
             
             result_data['bsr_info'] = bsr_info if bsr_info else None
 
@@ -710,14 +680,10 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             if result_data.get('netProfit'):
                 result_data['convertedNetProfit'] = get_converted_prices(result_data['netProfit'], currency_code)
         
-        # Adım 7: EU Business Fiyatlarını Al (KDV Düşülmüş Halde - Kategori ID ile)
-        logger.info("🇪🇺 Step 7: Fetching EU Business Prices and calculating Net Prices using Category ID...")
+        # Adım 7: EU Business Fiyatlarını Al
+        logger.info("🇪🇺 Step 7: Fetching EU Business Prices...")
         eu_markets = ['DE', 'FR', 'IT', 'ES']
         eu_business_prices = []
-        
-        # KDV hesaplaması için Adım 1'de bulunan kategori ID'sini al
-        product_category_id_for_vat = bsr_info.get('categoryId') if bsr_info else None
-
         for market_code in eu_markets:
             try:
                 eu_credentials, _, eu_error = get_credentials_for_marketplace(market_code)
@@ -751,19 +717,9 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
                             moq_for_best_price = discount.get('quantityTier', moq_for_best_price)
                 
                 if best_price_for_market != float('inf'):
-                    # --- GÜNCELLENMİŞ KDV HESAPLAMA BÖLÜMÜ ---
-                    price_gross = best_price_for_market
-                    # Yeni yardımcı fonksiyonu kategori ID'si ile çağır
-                    price_net = calculate_price_without_vat_by_id(price_gross, market_code, product_category_id_for_vat)
-                    
-                    logger.info(f"✅ Found EU B2B Price for {market_code}: Gross={price_gross}, Net={price_net}")
-
                     eu_business_prices.append({
-                        "market": market_code, 
-                        "currency": currency_for_best_price,
-                        "moq": moq_for_best_price,
-                        "price_gross": price_gross, # Orijinal brüt fiyat
-                        "price_net": price_net      # KDV düşülmüş net fiyat
+                        "market": market_code, "currency": currency_for_best_price,
+                        "moq": moq_for_best_price, "price": best_price_for_market
                     })
             except Exception as e:
                 logger.error(f"❌ Error fetching B2B price for {market_code}: {e}")
