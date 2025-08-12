@@ -396,8 +396,6 @@ function updateUI(container, data, error = null) {
 }
 
 
-// --- ESKİ renderEuMarketPrices FONKSİYONUNU SİLİP BUNU YAPIŞTIRIN ---
-
 function renderEuMarketPrices(container, asin, prices) {
     const countryFlags = { 'DE': '🇩🇪', 'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'UK': '🇬🇧' };
     const marketDomains = { 'DE': 'de', 'FR': 'fr', 'IT': 'it', 'ES': 'es', 'UK': 'co.uk' };
@@ -408,52 +406,24 @@ function renderEuMarketPrices(container, asin, prices) {
         list.innerHTML = '<div class="fc-no-eu-price">Fiyat verisi yok.</div>';
         return;
     }
-
-    // Tablo başlığını Net/Brüt olarak güncelleyelim
     list.innerHTML = `
         <table class="fc-eu-market-table">
-            <thead>
-                <tr>
-                    <th>Ülke</th>
-                    <th>Adet</th>
-                    <th>Fiyat (Net / <del>Brüt</del>)</th> 
-                </tr>
-            </thead>
+            <thead><tr><th>Ülke</th><th>Adet</th><th>Fiyat</th></tr></thead>
             <tbody>
-                ${prices.map(p => {
-                    // Backend'den gelen yeni price_net ve price_gross alanlarını kullan
-                    const hasNetPrice = p.price_net !== undefined && p.price_gross !== undefined;
-                    
-                    const displayPrice = hasNetPrice 
-                        ? formatCurrency(p.price_net, p.currency || 'EUR') 
-                        : formatCurrency(p.price, p.currency || 'EUR'); // Eski veri yapısı için yedek
-
-                    const grossPriceDisplay = hasNetPrice 
-                        ? `<del class="fc-old-price">${formatCurrency(p.price_gross, p.currency || 'EUR')}</del>` 
-                        : '';
-
-                    return `
-                        <tr>
-                            <td>${countryFlags[p.market] || ''} ${p.market}</td>
-                            <td>${p.moq}</td>
-                            <td>
-                                <a href="https://www.amazon.${marketDomains[p.market] || 'com'}/dp/${asin}" target="_blank">
-                                    ${displayPrice} ${grossPriceDisplay}
-                                </a>
-                            </td>
-                        </tr>
-                    `;
-                }).join('')}
+                ${prices.map(p => `
+                    <tr>
+                        <td>${countryFlags[p.market] || ''} ${p.market}</td>
+                        <td>${p.moq}</td>
+                        <td><a href="https://www.amazon.${marketDomains[p.market] || 'com'}/dp/${asin}" target="_blank">${formatCurrency(p.price, p.currency || 'EUR')}</a></td>
+                    </tr>
+                `).join('')}
             </tbody>
         </table>`;
 
-    // En düşük fiyatı hesaplarken KDV'SİZ 'price_net' değerini kullanalım
-    const euroPrices = prices.filter(p => p.currency === 'EUR' && p.price_net !== undefined);
+    const euroPrices = prices.filter(p => p.currency === 'EUR');
     if (euroPrices.length > 0) {
-        // En düşük NET fiyatı bul
-        lowestEuPrice = Math.min(...euroPrices.map(p => p.price_net));
-        // Maliyet hesaplayıcısını bu yeni en düşük net fiyata göre güncelle
-        updateCostInput(); 
+        lowestEuPrice = Math.min(...euroPrices.map(p => p.price));
+        updateCostInput();
     }
 }
 
