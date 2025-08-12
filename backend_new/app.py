@@ -544,27 +544,165 @@ def get_full_product_details_as_json(asin: str, marketplace_str: str):
             logger.error(f"❌ Error checking restrictions: {str(e)}")
             result_data['isSellable'] = None
 
-        # Adım 3: TEKLİFLER
+        # Bu kısmı kodunuzdaki "Adım 3: TEKLİFLER" bölümü ile değiştirin
+
+        # Adım 3: TEKLİFLER (GELİŞTİRİLMİŞ YÖNTEM)
         logger.info("💰 Step 3: Fetching offers and pricing...")
         buybox_price = None
         currency_code = None
+        shipping_info = {}
+
         try:
             offers_response = products_api.get_item_offers(asin, "New", MarketplaceId=marketplace.marketplace_id)
-            offers = offers_response.payload.get('Offers', [])
-            result_data['offers'] = sorted([o for o in offers], key=lambda x: float(x.get('ListingPrice', {}).get('Amount', float('inf'))))
+            payload = offers_response.payload
+            summary = payload.get('Summary', {})
             
-            buybox_offer = next((o for o in result_data['offers'] if o.get('IsBuyBoxWinner')), None)
-            if buybox_offer:
-                buybox_price = float(buybox_offer['ListingPrice']['Amount'])
-                currency_code = buybox_offer['ListingPrice']['CurrencyCode']
-            elif result_data['offers']:
-                buybox_price = float(result_data['offers'][0]['ListingPrice']['Amount'])
-                currency_code = result_data['offers'][0]['ListingPrice']['CurrencyCode']
-            
+            # 1. Öncelik: Buy Box fiyatını (LandedPrice) al
+            buybox_prices_list = summary.get('BuyBoxPrices', [])
+            if buybox_prices_list:
+                buybox_info = buybox_prices_list[0]
+                
+                # LandedPrice varsa kullan (ListingPrice + Shipping)
+                if 'LandedPrice' in buybox_info:
+                    buybox_price = float(buybox_info['LandedPrice']['Amount'])
+                    currency_code = buybox_info['LandedPrice']['CurrencyCode']
+                    
+                    # Eğer ayrı shipping bilgisi varsa kaydet
+                    if 'Shipping' in buybox_info:
+                        shipping_info = {
+                            'amount': float(buybox_info['Shipping']['Amount']),
+                            'currency': buybox_info['Shipping']['CurrencyCode']
+                        }
+                        
+                    logger.info(f"✅ Found Buy Box price (LandedPrice): {buybox_price} {currency_code}")
+                    
+                # LandedPrice yoksa ListingPrice + Shipping'i manual hesapla
+                elif 'ListingPrice' in buybox_info:
+                    listing_price = float(buybox_info['ListingPrice']['Amount'])
+                    currency_code = buybox_info['ListingPrice']['CurrencyCode']
+                    shipping_amount = 0.0
+                    
+                    if 'Shipping' in buybox_info:
+                        shipping_amount = float(buybox_info['Shipping']['Amount'])
+                        shipping_info = {
+                            'amount': shipping_amount,
+                            'currency': buybox_info['Shipping']['CurrencyCode']
+                        }
+                    
+                    buybox_price = listing_price + shipping_amount
+                    logger.info(f"✅ Calculated Buy Box price: {listing_price} + {shipping_amount} = {buybox_price} {currency_code}")
+
+            # 2. Eğer Buy Box yoksa, en düşük fiyatlı teklifi bul
+            if buybox_price is None:
+                lowest_prices_list = summary.get('LowestPrices', [])
+                
+                for price_info in lowest_prices_list:
+                    if price_info.get('condition') == 'new':
+                        # LandedPrice varsa kullan
+                        if 'LandedPrice' in price_info:
+                            buybox_price = float(price_info['LandedPrice']['Amount'])
+                            currency_code = price_info['LandedPrice']['CurrencyCode']
+                            logger.info(f"⚠️ No Buy Box. Using Lowest LandedPrice: {buybox_price} {currency_code}")
+                            
+                        # LandedPrice yoksa manual hesapla
+                        elif 'ListingPrice' in price_info:
+                            listing_price = float(price_info['ListingPrice']['Amount'])
+                            currency_code = price_info['ListingPrice']['CurrencyCode']
+                            shipping_amount = 0.0
+                            
+                            if 'Shipping' in price_info:
+                                shipping_amount = float(price_info['Shipping']['Amount'])
+                                shipping_info = {
+                                    'amount': shipping_amount,
+                                    'currency': price_info['Shipping']['CurrencyCode']
+                                }
+                            
+                            buybox_price = listing_price + shipping_amount
+                            logger.info(f"⚠️ No Buy Box. Calculated from Lowest: {listing_price} + {shipping_amount} = {buybox_price} {currency_code}")
+                        break
+
+            # 3. Eğer hala fiyat bulunamadıysa, tüm teklifleri kontrol et
+            if buybox_price is None:
+                offers = payload.get('Offers', [])
+                logger.info(f"🔍 Checking individual offers ({len(offers)} found)...")
+                
+                best_total_price = float('inf')
+                best_offer_details = None
+                
+                for offer in offers:
+                    if offer.get('SubCondition') != 'new':
+                        continue
+                        
+                    # Önce LandedPrice'a bak
+                    if 'ListingPrice' in offer:
+                        listing_price = float(offer['ListingPrice']['Amount'])
+                        currency_code = offer['ListingPrice']['CurrencyCode']
+                        shipping_amount = 0.0
+                        
+                        # Shipping bilgisini kontrol et
+                        if 'Shipping' in offer:
+                            shipping_amount = float(offer['Shipping']['Amount'])
+                        
+                        total_price = listing_price + shipping_amount
+                        
+                        if total_price < best_total_price:
+                            best_total_price = total_price
+                            best_offer_details = {
+                                'listing_price': listing_price,
+                                'shipping': shipping_amount,
+                                'total': total_price,
+                                'currency': currency_code,
+                                'fulfillment': offer.get('FulfillmentChannel', 'Unknown'),
+                                'seller_id': offer.get('SellerId', 'Unknown')
+                            }
+                
+                if best_offer_details:
+                    buybox_price = best_offer_details['total']
+                    currency_code = best_offer_details['currency']
+                    shipping_info = {
+                        'amount': best_offer_details['shipping'],
+                        'currency': best_offer_details['currency']
+                    }
+                    logger.info(f"✅ Best offer found: {best_offer_details['listing_price']} + {best_offer_details['shipping']} = {buybox_price} {currency_code}")
+                    logger.info(f"   Fulfillment: {best_offer_details['fulfillment']}")
+
+            # Sonuçları kaydet
             result_data['buyboxPrice'] = buybox_price
             result_data['currencyCode'] = currency_code
+            result_data['shippingInfo'] = shipping_info if shipping_info else None
+            
+            # Debug bilgileri
+            if buybox_price:
+                listing_price = buybox_price - shipping_info.get('amount', 0) if shipping_info else buybox_price
+                logger.info(f"📊 Final pricing breakdown:")
+                logger.info(f"   Listing Price: {listing_price} {currency_code}")
+                logger.info(f"   Shipping: {shipping_info.get('amount', 0)} {currency_code}")
+                logger.info(f"   Total (Buy Box): {buybox_price} {currency_code}")
+            else:
+                logger.warning(f"❌ Could not determine Buy Box price for {asin}")
+            
+            # Teklif bilgilerini de sakla
+            result_data['offers'] = payload.get('Offers', [])
+            result_data['priceBreakdown'] = {
+                'listingPrice': buybox_price - shipping_info.get('amount', 0) if shipping_info and buybox_price else buybox_price,
+                'shipping': shipping_info.get('amount', 0) if shipping_info else 0,
+                'total': buybox_price
+            } if buybox_price else None
+
+        except SellingApiException as e:
+            logger.error(f"❌ SP-API Error fetching offers: {e}")
+            if e.code == "404":
+                logger.warning(f"Product {asin} not found or has no offers in {marketplace_str}.")
+            result_data['buyboxPrice'] = None
+            result_data['currencyCode'] = None
+            result_data['shippingInfo'] = None
+            result_data['priceBreakdown'] = None
         except Exception as e:
-            logger.error(f"❌ Error fetching offers: {str(e)}")
+            logger.error(f"❌ Unexpected error fetching offers: {str(e)}")
+            result_data['buyboxPrice'] = None
+            result_data['currencyCode'] = None
+            result_data['shippingInfo'] = None
+            result_data['priceBreakdown'] = None  
 
         # Adım 4: BSR ANALİZİ
         logger.info("🎯 Step 4: Performing BSR Analysis...")
