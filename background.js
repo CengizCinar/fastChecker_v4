@@ -86,7 +86,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // --- Yan Panel için ASIN Kontrol Yardımcı Fonksiyonu ---
 async function handleAsinCheck(data, sendResponse) {
     try {
-        const { asins, credentials, sellerId, marketplace } = data;
+        const { asins, credentials, sellerId, marketplace, manualCheck } = data;
         const spApiHelper = new SPAPIHelper();
         const postaKutusuAdresi = "https://fastcheckerwebsocket-production.up.railway.app/mektup-at";
 
@@ -99,13 +99,18 @@ async function handleAsinCheck(data, sendResponse) {
             let result = await spApiHelper.checkASINSellability(asin, credentials, sellerId, marketplace);
             
             const isApprovalRequired = result.details?.reasons?.some(r => r.reasonCode === 'APPROVAL_REQUIRED');
+
             if (isApprovalRequired) {
-                result.manual_check_pending = true;
-                fetch(postaKutusuAdresi, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ asin: result.asin })
-                }).catch(error => console.error('Sunucuya gönderirken hata:', error));
+                if (manualCheck) {
+                    result.manual_check_pending = true;
+                    fetch(postaKutusuAdresi, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ asin: result.asin })
+                    }).catch(error => console.error('Sunucuya gönderirken hata:', error));
+                } else {
+                    result.status = 'APPROVAL_REQUIRED';
+                }
             }
 
             chrome.runtime.sendMessage({ action: 'asinResult', result: result });

@@ -181,6 +181,23 @@ body {
     box-shadow: 0 0 0 2px #00d4aa33;
 }
 
+.form-group-checkbox {
+    display: flex;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.form-group-checkbox label {
+    margin-bottom: 0;
+    margin-right: 10px;
+}
+
+.form-group-checkbox input {
+    width: auto;
+    margin-right: 5px;
+}
+
+
 .form-group input[type="password"] {
     padding-right: 50px;
 }

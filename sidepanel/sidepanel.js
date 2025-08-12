@@ -7,6 +7,7 @@ const locales = {
     en: {
         apiSettingsHeader: "SP-API Settings", refreshTokenLabel: "Refresh Token: *", clientIdLabel: "Client ID: *",
         clientSecretLabel: "Client Secret: *", sellerIdLabel: "Seller ID: *", marketplaceLabel: "Marketplace:",
+        manualCheckLabel: "Enable Manual Check:",
         asinCheckHeader: "ASIN Control", asinsLabel: "ASINs (comma separated):",
         enterRefreshToken: "Enter Refresh Token", enterLwaAppId: "Enter LWA App ID", enterLwaClientSecret: "Enter LWA Client Secret",
         enterSellerId: "Enter Seller ID", asinsPlaceholder: "B0C31QBVQ1, B0DRW7WRX3, B0052EBJF4",
@@ -24,6 +25,7 @@ const locales = {
     tr: {
         apiSettingsHeader: "SP-API Ayarları", refreshTokenLabel: "Refresh Token: *", clientIdLabel: "Client ID: *",
         clientSecretLabel: "Client Secret: *", sellerIdLabel: "Satıcı ID: *", marketplaceLabel: "Pazaryeri:",
+        manualCheckLabel: "Manuel Kontrolü Etkinleştir:",
         asinCheckHeader: "ASIN Kontrol", asinsLabel: "ASIN'ler (virgülle ayırın):",
         enterRefreshToken: "Refresh Token girin", enterLwaAppId: "LWA App ID girin", enterLwaClientSecret: "LWA Client Secret girin",
         enterSellerId: "Satıcı ID girin", asinsPlaceholder: "B0C31QBVQ1, B0DRW7WRX3, B0052EBJF4",
@@ -49,6 +51,7 @@ class FastChecker {
         this.manualResultsStore = {};
         this.pendingManualChecks = 0;
         this.isApiCheckDone = false;
+        this.manualCheck = true;
         this.init();
     }
 
@@ -60,8 +63,9 @@ class FastChecker {
     }
 
     async loadPersistentData() {
-        const { manualResultsStore = {}, language = 'en' } = await chrome.storage.local.get(['manualResultsStore', 'language']);
+        const { manualResultsStore = {}, language = 'en', manualCheck = true } = await chrome.storage.local.get(['manualResultsStore', 'language', 'manualCheck']);
         this.manualResultsStore = manualResultsStore;
+        this.manualCheck = manualCheck;
         await this.loadSettings();
         this.setLanguage(language, false);
     }
@@ -153,6 +157,8 @@ class FastChecker {
         } else {
             if (result.status === 'error') {
                 statusText = locales[this.currentLang].statusError; statusClass = 'error';
+            } else if (result.status === 'APPROVAL_REQUIRED') {
+                statusText = locales[this.currentLang].statusApprovalRequired; statusClass = 'approval-required';
             } else if (result.sellable) {
                 statusText = locales[this.currentLang].statusEligible; statusClass = 'eligible';
             } else if (result.manual_check_pending) {
@@ -197,8 +203,6 @@ class FastChecker {
         const lang = this.currentLang;
         const headers = [locales[lang].csvBrand, locales[lang].csvTitle, locales[lang].csvAsin, locales[lang].csvStatus];
         
-        // ÖNEMLİ: CSV oluşturulurken, arayüzdeki dinamik sırayı değil,
-        // kullanıcının girdiği orijinal sırayı kullan.
         const rows = this.lastAsinInputOrder.map(asin => {
             const result = this.results.find(r => r.asin === asin);
             if (!result) return null;
@@ -209,6 +213,7 @@ class FastChecker {
                 status = manualStatus === 'approval_required' ? locales[lang].statusManualApprovalRequired : locales[lang].statusManualDoesNotQualify;
             } else {
                 if (result.status === 'error') status = locales[lang].statusError;
+                else if (result.status === 'APPROVAL_REQUIRED') status = locales[lang].statusApprovalRequired;
                 else if (result.sellable) status = locales[lang].statusEligible;
                 else if (result.manual_check_pending) status = locales[lang].statusManualCheckPending;
                 else status = locales[lang].statusNotEligible;
@@ -261,7 +266,8 @@ class FastChecker {
                         lwa_client_secret: result.apiSettings.clientSecret
                     },
                     sellerId: result.apiSettings.sellerId,
-                    marketplace: result.apiSettings.marketplace
+                    marketplace: result.apiSettings.marketplace,
+                    manualCheck: this.manualCheck
                 }
             });
         } catch (error) { this.showNotification('Error during ASIN check!', 'error'); this.hideLoading(true); }
@@ -294,8 +300,54 @@ class FastChecker {
     }
     
     toggleSection(header) { const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (content.style.display === 'none') { content.style.display = 'block'; arrow.classList.remove('collapsed'); } else { content.style.display = 'none'; arrow.classList.add('collapsed'); } }
-    async saveApiSettings() { const settings = { refreshToken: document.getElementById('refreshToken').value, clientId: document.getElementById('clientId').value, clientSecret: document.getElementById('clientSecret').value, sellerId: document.getElementById('sellerId').value, marketplace: document.getElementById('marketplace').value }; if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); return; } try { await chrome.storage.local.set({ apiSettings: settings }); this.showNotification(locales[this.currentLang].settingsSaved, 'success'); } catch (error) { this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); } }
-    async loadSettings() { try { const result = await chrome.storage.local.get(['apiSettings']); const header = document.getElementById('apiSettingsHeader'); const content = header.nextElementSibling; const arrow = header.querySelector('.arrow'); if (result.apiSettings && result.apiSettings.refreshToken && result.apiSettings.clientId) { const settings = result.apiSettings; document.getElementById('refreshToken').value = settings.refreshToken || ''; document.getElementById('clientId').value = settings.clientId || ''; document.getElementById('clientSecret').value = settings.clientSecret || ''; document.getElementById('sellerId').value = settings.sellerId || ''; document.getElementById('marketplace').value = settings.marketplace || 'US'; content.style.display = 'none'; arrow.classList.add('collapsed'); } else { content.style.display = 'block'; arrow.classList.remove('collapsed'); } } catch (error) { console.error('Settings load error:', error); } }
+    async saveApiSettings() { 
+        const settings = { 
+            refreshToken: document.getElementById('refreshToken').value, 
+            clientId: document.getElementById('clientId').value, 
+            clientSecret: document.getElementById('clientSecret').value, 
+            sellerId: document.getElementById('sellerId').value, 
+            marketplace: document.getElementById('marketplace').value,
+            manualCheck: document.getElementById('manualCheck').checked
+        }; 
+        if (!settings.refreshToken || !settings.clientId || !settings.clientSecret || !settings.sellerId) { 
+            this.showNotification(locales[this.currentLang].fillRequiredFields, 'error'); 
+            return; 
+        } 
+        try { 
+            await chrome.storage.local.set({ apiSettings: settings }); 
+            this.manualCheck = settings.manualCheck;
+            this.showNotification(locales[this.currentLang].settingsSaved, 'success'); 
+        } catch (error) { 
+            this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); 
+        } 
+    }
+    async loadSettings() { 
+        try { 
+            const result = await chrome.storage.local.get(['apiSettings']); 
+            const header = document.getElementById('apiSettingsHeader'); 
+            const content = header.nextElementSibling; 
+            const arrow = header.querySelector('.arrow'); 
+            if (result.apiSettings) { 
+                const settings = result.apiSettings; 
+                document.getElementById('refreshToken').value = settings.refreshToken || ''; 
+                document.getElementById('clientId').value = settings.clientId || ''; 
+                document.getElementById('clientSecret').value = settings.clientSecret || ''; 
+                document.getElementById('sellerId').value = settings.sellerId || ''; 
+                document.getElementById('marketplace').value = settings.marketplace || 'US'; 
+                document.getElementById('manualCheck').checked = settings.manualCheck !== false; // default to true
+                this.manualCheck = settings.manualCheck !== false;
+                if (settings.refreshToken && settings.clientId) {
+                    content.style.display = 'none'; 
+                    arrow.classList.add('collapsed'); 
+                }
+            } else { 
+                content.style.display = 'block'; 
+                arrow.classList.remove('collapsed'); 
+            } 
+        } catch (error) { 
+            console.error('Settings load error:', error); 
+        } 
+    }
     showLoading() { 
         document.getElementById('results').innerHTML = `<div class="loading"><div class="spinner"></div><span>${locales[this.currentLang].statusManualCheckPending}</span></div>`; 
         document.getElementById('checkAsins').style.display = 'none';
