@@ -1,7 +1,8 @@
-// NIHAI SÜRÜM 8.2: "DİNAMİK AKAN LİSTE"
+// NIHAI SÜRÜM 8.3: "DİNAMİK AKAN LİSTE + TIMEOUT"
 // 1. Üstteki mavi bildirimler kaldırıldı.
 // 2. Gelen her yeni sonuç (ilk veya manuel), listenin en üstüne eklenir.
 // 3. CSV indirme sırası, kullanıcının girdiği orijinal sırayı korur.
+// 4. 2 dakika veri gelmezse timeout ile CSV indirme butonu gösterilir.
 
 const locales = {
     en: {
@@ -20,7 +21,8 @@ const locales = {
         allManualChecksComplete: "All manual checks are complete! You can now download the results.", areaCleaned: "Area cleaned for new check.",
         checkStopped: "Check has been stopped by user.",
         manualResultReceived: "Result for ${asin}: ${status}",
-        csvBrand: "BRAND", csvTitle: "TITLE", csvAsin: "ASIN", csvStatus: "STATUS"
+        csvBrand: "BRAND", csvTitle: "TITLE", csvAsin: "ASIN", csvStatus: "STATUS",
+        timeoutMessage: "No new data received for 2 minutes. Check completed with available results."
     },
     tr: {
         apiSettingsHeader: "SP-API Ayarları", refreshTokenLabel: "Refresh Token: *", clientIdLabel: "Client ID: *",
@@ -38,7 +40,8 @@ const locales = {
         allManualChecksComplete: "Tüm manuel kontroller tamamlandı! Şimdi sonuçları indirebilirsiniz.", areaCleaned: "Yeni kontrol için alan temizlendi.",
         checkStopped: "Kontrol kullanıcı tarafından durduruldu.",
         manualResultReceived: "${asin} için sonuç: ${status}",
-        csvBrand: "MARKA", csvTitle: "BAŞLIK", csvAsin: "ASIN", csvStatus: "DURUM"
+        csvBrand: "MARKA", csvTitle: "BAŞLIK", csvAsin: "ASIN", csvStatus: "DURUM",
+        timeoutMessage: "2 dakikadır yeni veri alınmadı. Mevcut sonuçlarla kontrol tamamlandı."
     }
 };
 
@@ -52,6 +55,9 @@ class FastChecker {
         this.pendingManualChecks = 0;
         this.isApiCheckDone = false;
         this.manualCheck = true;
+        this.lastDataReceiveTime = null;
+        this.timeoutTimer = null;
+        this.TIMEOUT_DURATION = 2 * 60 * 1000; // 2 dakika
         this.init();
     }
 
@@ -88,7 +94,10 @@ class FastChecker {
     
     listenForMessages() {
         chrome.runtime.onMessage.addListener((msg) => {
-            if (msg.action === 'asinResult') this.addResultRow(msg.result);
+            if (msg.action === 'asinResult') {
+                this.updateLastDataTime();
+                this.addResultRow(msg.result);
+            }
             if (msg.action === 'asinCheckDone') {
                 this.isApiCheckDone = true;
                 this.hideLoading(msg.stopped);
@@ -98,10 +107,54 @@ class FastChecker {
                 }
             }
             if (msg.action === 'manualResult') {
-                // Bu fonksiyon artık bildirim göstermiyor, sadece listeyi güncelliyor.
+                this.updateLastDataTime();
                 this.handleManualResult(msg.result);
             }
         });
+    }
+
+    updateLastDataTime() {
+        this.lastDataReceiveTime = Date.now();
+        this.resetTimeoutTimer();
+    }
+
+    resetTimeoutTimer() {
+        if (this.timeoutTimer) {
+            clearTimeout(this.timeoutTimer);
+        }
+        
+        // Sadece manuel check açıkken ve bekleyen manual check varsa timeout başlat
+        if (this.manualCheck && this.pendingManualChecks > 0) {
+            this.timeoutTimer = setTimeout(() => {
+                this.handleTimeout();
+            }, this.TIMEOUT_DURATION);
+        }
+    }
+
+    handleTimeout() {
+        console.log('Timeout reached - forcing completion');
+        
+        // Bekleyen manual check'leri sıfırla
+        this.pendingManualChecks = 0;
+        
+        // API check'in de bitmesini sağla
+        this.isApiCheckDone = true;
+        
+        // Timeout mesajı göster
+        this.showNotification(locales[this.currentLang].timeoutMessage, 'info');
+        
+        // CSV butonunu göster
+        this.checkIfAllDone();
+        
+        // Loading'i gizle
+        this.hideLoading(false);
+    }
+
+    clearTimeoutTimer() {
+        if (this.timeoutTimer) {
+            clearTimeout(this.timeoutTimer);
+            this.timeoutTimer = null;
+        }
     }
 
     handleManualResult(result) {
@@ -135,6 +188,7 @@ class FastChecker {
 
     checkIfAllDone() {
         if (this.isApiCheckDone && this.pendingManualChecks === 0 && this.results.length > 0) {
+            this.clearTimeoutTimer(); // Timer'ı temizle
             const downloadBtn = document.getElementById('downloadCsvBtn');
             downloadBtn.style.display = 'block';
             downloadBtn.onclick = () => this.downloadResultsAsCsv();
@@ -249,6 +303,7 @@ class FastChecker {
         if (asins.length === 0) { this.showNotification(locales[this.currentLang].noValidAsins, 'error'); this.resetUI(); return; }
         
         this.lastAsinInputOrder = asins; // Orijinal sıralamayı burada kaydet
+        this.lastDataReceiveTime = Date.now(); // İlk veri zamanını ayarla
         
         const result = await chrome.storage.local.get(['apiSettings']);
         if (!result.apiSettings?.refreshToken || !result.apiSettings?.clientId) { this.showNotification(locales[this.currentLang].settingsFirst, 'error'); this.resetUI(); return; }
@@ -275,22 +330,26 @@ class FastChecker {
     
     stopCheck() {
         chrome.runtime.sendMessage({ action: 'stopCheck' });
+        this.clearTimeoutTimer();
         this.hideLoading(true);
         this.showNotification(locales[this.currentLang].checkStopped, 'info');
     }
 
     resetStateForNewCheck() {
+        this.clearTimeoutTimer();
         this.manualResultsStore = {};
         this.results = [];
         this.lastAsinInputOrder = [];
         this.pendingManualChecks = 0;
         this.isApiCheckDone = false;
+        this.lastDataReceiveTime = null;
         document.getElementById('results').innerHTML = '';
         document.getElementById('downloadCsvBtn').style.display = 'none';
         chrome.storage.local.remove('manualResultsStore');
     }
 
     resetUI() {
+        this.clearTimeoutTimer();
         this.isCheckInProgress = false;
         document.getElementById('checkAsins').style.display = 'block';
         document.getElementById('stopCheckBtn').style.display = 'none';
@@ -317,6 +376,14 @@ class FastChecker {
             await chrome.storage.local.set({ apiSettings: settings }); 
             this.manualCheck = settings.manualCheck;
             this.showNotification(locales[this.currentLang].settingsSaved, 'success'); 
+
+            // Collapse the section if all fields are filled
+            const header = document.getElementById('apiSettingsHeader');
+            const content = header.nextElementSibling;
+            const arrow = header.querySelector('.arrow');
+            content.style.display = 'none';
+            arrow.classList.add('collapsed');
+
         } catch (error) { 
             this.showNotification(locales[this.currentLang].errorSavingSettings, 'error'); 
         } 
