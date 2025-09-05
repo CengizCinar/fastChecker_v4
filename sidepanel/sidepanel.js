@@ -1,8 +1,7 @@
-// NIHAI SÜRÜM 8.3: "DİNAMİK AKAN LİSTE + TIMEOUT"
-// 1. Üstteki mavi bildirimler kaldırıldı.
-// 2. Gelen her yeni sonuç (ilk veya manuel), listenin en üstüne eklenir.
-// 3. CSV indirme sırası, kullanıcının girdiği orijinal sırayı korur.
-// 4. 2 dakika veri gelmezse timeout ile CSV indirme butonu gösterilir.
+// NIHAI SÜRÜM 8.4: "TARİH EKLEME VE STABİLİTE"
+// 1. CSV'ye gg/aa/yil formatında tarih sütunu eklendi.
+// 2. Sonuçların tarih damgaları artık doğru bir şekilde saklanıyor.
+// 3. Önceki değişikliklerden kaynaklanan kod tekrarları temizlendi.
 
 const locales = {
     en: {
@@ -21,7 +20,7 @@ const locales = {
         allManualChecksComplete: "All manual checks are complete! You can now download the results.", areaCleaned: "Area cleaned for new check.",
         checkStopped: "Check has been stopped by user.",
         manualResultReceived: "Result for ${asin}: ${status}",
-        csvBrand: "BRAND", csvTitle: "TITLE", csvAsin: "ASIN", csvStatus: "STATUS",
+        csvBrand: "BRAND", csvTitle: "TITLE", csvAsin: "ASIN", csvStatus: "STATUS", csvDate: "DATE",
         timeoutMessage: "No new data received for 2 minutes. Check completed with available results."
     },
     tr: {
@@ -40,7 +39,7 @@ const locales = {
         allManualChecksComplete: "Tüm manuel kontroller tamamlandı! Şimdi sonuçları indirebilirsiniz.", areaCleaned: "Yeni kontrol için alan temizlendi.",
         checkStopped: "Kontrol kullanıcı tarafından durduruldu.",
         manualResultReceived: "${asin} için sonuç: ${status}",
-        csvBrand: "MARKA", csvTitle: "BAŞLIK", csvAsin: "ASIN", csvStatus: "DURUM",
+        csvBrand: "MARKA", csvTitle: "BAŞLIK", csvAsin: "ASIN", csvStatus: "DURUM", csvDate: "TARİH",
         timeoutMessage: "2 dakikadır yeni veri alınmadı. Mevcut sonuçlarla kontrol tamamlandı."
     }
 };
@@ -123,7 +122,6 @@ class FastChecker {
             clearTimeout(this.timeoutTimer);
         }
         
-        // Sadece manuel check açıkken ve bekleyen manual check varsa timeout başlat
         if (this.manualCheck && this.pendingManualChecks > 0) {
             this.timeoutTimer = setTimeout(() => {
                 this.handleTimeout();
@@ -133,20 +131,10 @@ class FastChecker {
 
     handleTimeout() {
         console.log('Timeout reached - forcing completion');
-        
-        // Bekleyen manual check'leri sıfırla
         this.pendingManualChecks = 0;
-        
-        // API check'in de bitmesini sağla
         this.isApiCheckDone = true;
-        
-        // Timeout mesajı göster
         this.showNotification(locales[this.currentLang].timeoutMessage, 'info');
-        
-        // CSV butonunu göster
         this.checkIfAllDone();
-        
-        // Loading'i gizle
         this.hideLoading(false);
     }
 
@@ -160,22 +148,31 @@ class FastChecker {
     handleManualResult(result) {
         this.manualResultsStore[result.asin] = result.manual_status;
         
-        // Mevcut sonucu bul ve en üste taşı
         const resultIndex = this.results.findIndex(r => r.asin === result.asin);
         if (resultIndex !== -1) {
             const itemToUpdate = this.results[resultIndex];
+            itemToUpdate.timestamp = result.timestamp; // Manuel sonucun tarihini güncelle
             
-            // Sonucu listenin başından sil
             this.results.splice(resultIndex, 1);
-            
-            // Güncellenmiş öğeyi listenin en başına ekle
             this.results.unshift(itemToUpdate);
         }
 
-        this.renderAllResults(); // Arayüzü yeni sıralama ile yeniden çiz
-
+        this.renderAllResults();
         if (this.pendingManualChecks > 0) this.pendingManualChecks--;
         this.checkIfAllDone();
+    }
+
+    addResultRow(result) {
+        if (this.results.some(r => r.asin === result.asin)) return;
+        
+        if (result.manual_check_pending) {
+            this.pendingManualChecks++;
+        }
+        
+        result.timestamp = new Date().toISOString(); // Sonucun ilk geldiği anın tarihini ekle
+        this.results.unshift(result);
+        
+        this.renderAllResults();
     }
 
     bindEvents() {
@@ -188,7 +185,7 @@ class FastChecker {
 
     checkIfAllDone() {
         if (this.isApiCheckDone && this.pendingManualChecks === 0 && this.results.length > 0) {
-            this.clearTimeoutTimer(); // Timer'ı temizle
+            this.clearTimeoutTimer();
             const downloadBtn = document.getElementById('downloadCsvBtn');
             downloadBtn.style.display = 'block';
             downloadBtn.onclick = () => this.downloadResultsAsCsv();
@@ -202,8 +199,11 @@ class FastChecker {
         div.id = `result-row-${result.asin}`;
         let statusText = '', statusClass = '';
         const manualStatus = this.manualResultsStore[result.asin];
+
         if (manualStatus) {
-            if (manualStatus === 'approval_required') {
+            if (manualStatus === 'SELLABLE') {
+                statusText = locales[this.currentLang].statusEligible; statusClass = 'eligible';
+            } else if (manualStatus === 'approval_required') {
                 statusText = locales[this.currentLang].statusManualApprovalRequired; statusClass = 'approval-required';
             } else if (manualStatus === 'does_not_qualify') {
                 statusText = locales[this.currentLang].statusManualDoesNotQualify; statusClass = 'not-eligible';
@@ -226,26 +226,11 @@ class FastChecker {
         return div;
     }
 
-    addResultRow(result) {
-        // Zaten varsa ekleme
-        if (this.results.some(r => r.asin === result.asin)) return;
-        
-        if (result.manual_check_pending) {
-            this.pendingManualChecks++;
-        }
-        
-        // Yeni sonucu her zaman listenin başına ekle
-        this.results.unshift(result);
-        
-        this.renderAllResults();
-    }
-
     renderAllResults() {
         const resultsContainer = document.getElementById('results');
         const loadingDiv = document.querySelector('#results .loading');
         if (loadingDiv) loadingDiv.remove();
 
-        // Arayüzü this.results dizisindeki mevcut sıraya göre çiz (yeni gelen en üstte)
         resultsContainer.innerHTML = '';
         this.results.forEach(res => {
             const row = this.createResultRow(res);
@@ -255,7 +240,7 @@ class FastChecker {
 
     downloadResultsAsCsv() {
         const lang = this.currentLang;
-        const headers = [locales[lang].csvBrand, locales[lang].csvTitle, locales[lang].csvAsin, locales[lang].csvStatus];
+        const headers = [locales[lang].csvBrand, locales[lang].csvTitle, locales[lang].csvAsin, locales[lang].csvStatus, locales[lang].csvDate];
         
         const rows = this.lastAsinInputOrder.map(asin => {
             const result = this.results.find(r => r.asin === asin);
@@ -264,7 +249,13 @@ class FastChecker {
             const manualStatus = this.manualResultsStore[result.asin];
             let status = '';
             if (manualStatus) {
-                status = manualStatus === 'approval_required' ? locales[lang].statusManualApprovalRequired : locales[lang].statusManualDoesNotQualify;
+                if (manualStatus === 'SELLABLE') {
+                    status = locales[lang].statusEligible;
+                } else if (manualStatus === 'approval_required') {
+                    status = locales[lang].statusManualApprovalRequired;
+                } else {
+                    status = locales[lang].statusManualDoesNotQualify;
+                }
             } else {
                 if (result.status === 'error') status = locales[lang].statusError;
                 else if (result.status === 'APPROVAL_REQUIRED') status = locales[lang].statusApprovalRequired;
@@ -273,11 +264,15 @@ class FastChecker {
                 else status = locales[lang].statusNotEligible;
             }
 
+            const date = result.timestamp ? new Date(result.timestamp) : new Date();
+            const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+
             return [
                 result.details?.brand || '',
                 result.details?.title || '',
                 result.asin,
-                status
+                status,
+                formattedDate
             ];
         }).filter(Boolean);
 
@@ -299,11 +294,11 @@ class FastChecker {
         this.resetStateForNewCheck();
         const asinInput = document.getElementById('asinInput').value.trim();
         if (!asinInput) { this.showNotification(locales[this.currentLang].enterAsins, 'error'); this.resetUI(); return; }
-        const asins = asinInput.split(/[\s,]+/).map(asin => asin.trim()).filter(asin => asin);
+        const asins = asinInput.replace(/[,;\t\r\n]/g, ' ').split(/\s+/).map(asin => asin.trim()).filter(asin => asin);
         if (asins.length === 0) { this.showNotification(locales[this.currentLang].noValidAsins, 'error'); this.resetUI(); return; }
         
-        this.lastAsinInputOrder = asins; // Orijinal sıralamayı burada kaydet
-        this.lastDataReceiveTime = Date.now(); // İlk veri zamanını ayarla
+        this.lastAsinInputOrder = asins;
+        this.lastDataReceiveTime = Date.now();
         
         const result = await chrome.storage.local.get(['apiSettings']);
         if (!result.apiSettings?.refreshToken || !result.apiSettings?.clientId) { this.showNotification(locales[this.currentLang].settingsFirst, 'error'); this.resetUI(); return; }
@@ -377,7 +372,6 @@ class FastChecker {
             this.manualCheck = settings.manualCheck;
             this.showNotification(locales[this.currentLang].settingsSaved, 'success'); 
 
-            // Collapse the section if all fields are filled
             const header = document.getElementById('apiSettingsHeader');
             const content = header.nextElementSibling;
             const arrow = header.querySelector('.arrow');
@@ -395,13 +389,13 @@ class FastChecker {
             const content = header.nextElementSibling; 
             const arrow = header.querySelector('.arrow'); 
             if (result.apiSettings) { 
-                const settings = result.apiSettings; 
+                const settings = result.apiSettings;
                 document.getElementById('refreshToken').value = settings.refreshToken || ''; 
                 document.getElementById('clientId').value = settings.clientId || ''; 
                 document.getElementById('clientSecret').value = settings.clientSecret || ''; 
                 document.getElementById('sellerId').value = settings.sellerId || ''; 
                 document.getElementById('marketplace').value = settings.marketplace || 'US'; 
-                document.getElementById('manualCheck').checked = settings.manualCheck !== false; // default to true
+                document.getElementById('manualCheck').checked = settings.manualCheck !== false;
                 this.manualCheck = settings.manualCheck !== false;
                 if (settings.refreshToken && settings.clientId) {
                     content.style.display = 'none'; 
@@ -439,3 +433,8 @@ function togglePasswordVisibility(id) {
     const input = document.getElementById(id);
     input.type = input.type === 'password' ? 'text' : 'password';
 }
+
+document.getElementById('toggleRefreshToken').addEventListener('click', () => togglePasswordVisibility('refreshToken'));
+document.getElementById('toggleClientId').addEventListener('click', () => togglePasswordVisibility('clientId'));
+document.getElementById('toggleClientSecret').addEventListener('click', () => togglePasswordVisibility('clientSecret'));
+document.getElementById('toggleSellerId').addEventListener('click', () => togglePasswordVisibility('sellerId'));
